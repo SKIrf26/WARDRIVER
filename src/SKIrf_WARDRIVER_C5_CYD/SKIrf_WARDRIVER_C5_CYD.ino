@@ -1984,6 +1984,7 @@ void stopWardriving() {
   wdNewRecord = (total > recBestSession && total > 0);
   if (wdNewRecord) recBestSession = total;
   saveRecords();
+  if (!homeWifiConnected) WiFi.mode(WIFI_OFF);
   beep(1, 90);
   Serial.printf("Wardrive stopped: %lu unique, %lu rows\n", (unsigned long)total, (unsigned long)rowsLogged);
 }
@@ -2264,6 +2265,7 @@ void updateCarAnimation() {
   if (!lanes[0].on && !lanes[1].on) return;
   unsigned long now = millis();
   unsigned long frameMs = (currentScreen == WARDRIVING_SCREEN) ? 50 : 40;
+  if (!gpsValid) frameMs = 100;   // 10 fps while the GPS hunts for its first fix: less display-bus noise near the antenna
   if (now - laneLastFrame < frameMs) return;
   laneLastFrame = now;
   for (int i = 0; i < 2; i++) {
@@ -6262,6 +6264,10 @@ void startPortalAP() {
     apActive = false;
     return;
   }
+  // The GPS antenna sits a few centimetres from the radio and is trying to get its first
+  // fix during this minute: a full-power hotspot right next to it slows that down a lot.
+  // A phone at arm's length does not need more than this.
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
   delay(200);
 
   IPAddress ip = WiFi.softAPIP();
@@ -6495,9 +6501,9 @@ void stopPortalAP() {
     Serial.println("AP stopped — home WiFi still up");
   } else {
     server.stop();
-    WiFi.mode(WIFI_STA);
     WiFi.disconnect();
-    Serial.println("AP stopped");
+    WiFi.mode(WIFI_OFF);          // radio silent until a run or Wi-Fi screen needs it (GPS-friendly)
+    Serial.println("AP stopped, Wi-Fi radio off");
   }
 }
 
@@ -6703,6 +6709,15 @@ void loop() {
   if (millis() - last1Hz >= 1000) {
     last1Hz = millis();
     wdTrackDistance();
+    // Wi-Fi off whenever nothing uses it: the ESP32-C5's radio sits next to the GPS antenna,
+    // and an idle-but-on radio is still noise the GPS has to dig through for its first fix.
+    {
+      bool wifiScreen = (currentScreen == WIFI_SCREEN || currentScreen == WIFI_SCAN_SCREEN || currentScreen == WIFI_PASS_SCREEN || currentScreen == GAME_STATS_SCREEN);
+      if (!wardriveActive && !apActive && !homeWifiConnected && !wifiScreen && WiFi.getMode() != WIFI_OFF) {
+        WiFi.mode(WIFI_OFF);
+        Serial.println("Wi-Fi radio off (idle)");
+      }
+    }
     // live hints on the Home tiles (REC count, GPS lock)
     if (currentScreen == HOME_SCREEN) {
       static String lastHints = "";
@@ -7011,8 +7026,6 @@ void loop() {
           userWantsHomeWifi = false;
           WiFi.disconnect(true);
           WiFi.mode(WIFI_OFF);
-          delay(50);
-          WiFi.mode(WIFI_STA);
           homeWifiConnected = false;
           homeWifiIP = "";
           beep(1, 30);

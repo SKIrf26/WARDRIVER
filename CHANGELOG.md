@@ -9,6 +9,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GPS: the board no longer sends set-up commands to the module; it only listens. Beta 1 sent commands for several module makers (rate, sentences, constellations), and on the NM-CYD-C5 GPS module that stopped it talking after a few seconds. The module's factory output (1 Hz, 9600 baud, GGA, GSA, GSV and RMC) is all the wardriver needs. The old behaviour can be turned back on in the source (SKIRF_GPS_CONFIGURE).
 - GPS: the baud hunt also runs when bytes arrive but no sentence can be read, and now tries 9600, 38400 and 115200 baud with normal and swapped RX/TX. Before, a module at another baud was never found.
 
+- GPS: faster first fix. The Wi-Fi radio is now switched off whenever nothing uses it (after the start-up portal, after a run, and away from the Wi-Fi screens), the start-up hotspot runs at low power (8.5 dBm), and the screen animations slow to 10 frames a second until the GPS has a fix. The radio and display bus sit a few centimetres from the GPS antenna, and their noise was slowing or blocking the first fix.
+
 ### Added
 - GPS screen: SATELLITES shows "used / in view" while searching, and FIX says NO DATA or BAD BAUD when the link is the problem. The wardrive screen says "No data from the GPS - check wiring" instead of waiting.
 - Serial Monitor: a "GPS:" status line every 10 seconds (pins, baud, characters, good and bad sentences, satellites used and in view).

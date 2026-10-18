@@ -38,44 +38,44 @@ The sections below are the `// ----` and `// ====` headings in the sketch, in fi
 | 1779 | Wi-Fi: direct ESP-IDF scan |
 | 1854 | BLE: async scan |
 | 1901 | Session control |
-| 2086 | ANIMATION LANES |
-| 2161 | Sprite blit (4-bit palette, optional body recolour) |
-| 2197 | Scene backgrounds |
-| 2213 | One frame |
-| 2362 | SCREENS: HOME / TRANSPORT / WARDRIVING / REPORT |
-| 2407 | HOME: radar scope + one primary action |
-| 2441 | Radar scope |
-| 2552 | Home chrome |
-| 2672 | Transport picker |
-| 2751 | Wardriving dashboard |
-| 3099 | Session report |
-| 3233 | GPS / NAVIGATION |
-| 3455 | Settings list + UI colors |
-| 3480 | DRAG-TO-SCROLL LISTS |
-| 3538 | Theme |
-| 3592 | Logs (files) |
-| 3665 | Choose network (Wi-Fi scan) |
-| 3724 | About & safety |
-| 3762 | WDGWars stats |
-| 3861 | Pro console |
-| 3920 | Dispatcher (called every loop) |
-| 3963 | Theme apply, file list, Wi-Fi scan |
-| 4090 | Big-key password keyboard (resistive-friendly) |
-| 4239 | Wi-Fi screen |
-| 4309 | Logs: select, delete, upload from the board |
-| 4463 | WDGWars WDGW Stats (GET /api/me) |
-| 4625 | Settings actions, Pro session, brightness |
-| 4811 | SETTINGS: grouped list, drag to scroll |
-| 5021 | Orientation |
-| 5071 | Home WiFi config |
-| 5200 | Soft AP + SD file portal |
-| 5378 | WDGWars CSV upload |
-| 5628 | Wigle CSV upload |
-| 5772 | Web portal pages (WiGLE, home Wi-Fi, file list, downloads) |
-| 6244 | Web portal hotspot + 60 s countdown screen |
-| 6523 | Boot splash |
-| 6582 | setup() |
-| 6676 | loop(): touch dispatch for every screen |
+| 2087 | ANIMATION LANES |
+| 2162 | Sprite blit (4-bit palette, optional body recolour) |
+| 2198 | Scene backgrounds |
+| 2214 | One frame |
+| 2364 | SCREENS: HOME / TRANSPORT / WARDRIVING / REPORT |
+| 2409 | HOME: radar scope + one primary action |
+| 2443 | Radar scope |
+| 2554 | Home chrome |
+| 2674 | Transport picker |
+| 2753 | Wardriving dashboard |
+| 3101 | Session report |
+| 3235 | GPS / NAVIGATION |
+| 3457 | Settings list + UI colors |
+| 3482 | DRAG-TO-SCROLL LISTS |
+| 3540 | Theme |
+| 3594 | Logs (files) |
+| 3667 | Choose network (Wi-Fi scan) |
+| 3726 | About & safety |
+| 3764 | WDGWars stats |
+| 3863 | Pro console |
+| 3922 | Dispatcher (called every loop) |
+| 3965 | Theme apply, file list, Wi-Fi scan |
+| 4092 | Big-key password keyboard (resistive-friendly) |
+| 4241 | Wi-Fi screen |
+| 4311 | Logs: select, delete, upload from the board |
+| 4465 | WDGWars WDGW Stats (GET /api/me) |
+| 4627 | Settings actions, Pro session, brightness |
+| 4813 | SETTINGS: grouped list, drag to scroll |
+| 5023 | Orientation |
+| 5073 | Home WiFi config |
+| 5202 | Soft AP + SD file portal |
+| 5380 | WDGWars CSV upload |
+| 5630 | Wigle CSV upload |
+| 5774 | Web portal pages (WiGLE, home Wi-Fi, file list, downloads) |
+| 6246 | Web portal hotspot + 60 s countdown screen |
+| 6529 | Boot splash |
+| 6588 | setup() |
+| 6682 | loop(): touch dispatch for every screen |
 
 ## How a run works
 
