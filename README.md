@@ -1,6 +1,6 @@
 <div align="center">
 
-![SKIrf Wardriver](docs/images/banner.jpg)
+![SKIrf Wardriver](docs/images/banner.png)
 
 **Dual-band wardriver for the NM-CYD-C5 ("cheap yellow display", ESP32-C5)**
 
