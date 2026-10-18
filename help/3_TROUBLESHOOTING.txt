@@ -41,6 +41,8 @@ D. It says WAITING FOR A GPS FIX (or WAITING FOR MORE SATELLITES) and never star
    - The Serial Monitor (115200 baud) prints a "GPS:" line every 10 seconds with the pins, baud, characters received,
      good and bad sentences, satellites used and in view. Include it when you report a GPS problem.
    - Keep the GPS antenna a little away from the board and its display (a few centimetres helps).
+   - A module that stopped talking after an older release sent it set-up commands stays silent until it loses power:
+     unplug the USB cable for 10 seconds (and remove any power bank) so the module restarts.
    - In Pro mode, a strict GPS accuracy setting (HDOP 2, 6 sats) can hold back a run: set it to Off.
 
 E. It finds few or no networks

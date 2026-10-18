@@ -1366,24 +1366,17 @@ void gpsSendNmea(const char* body) {
   delay(25);
 }
 
+// Optional: tune the module (sentences / rate). OFF by default: every common module
+// (ATGM336H, NEO-6M/M8N, PA6H) already sends GGA, GSA, GSV and RMC at 1 Hz and 9600
+// baud from the factory, which is all the wardriver needs. Sending set-up commands
+// meant for one maker to another maker's module can stop it talking until it is
+// powered off, so the board only listens unless you turn this on.
+#define SKIRF_GPS_CONFIGURE 0
 void gpsApplyConfig() {
-  // 1 Hz (every module's factory rate) with GGA (fix, satellites used, HDOP, altitude),
-  // GSA, GSV (satellites in view) and RMC (date, speed, course). Beta 1 asked for 5 Hz and
-  // GGA + RMC only: at 9600 baud that left almost no headroom (garbled sentences are
-  // dropped, so a module with a fix could still look like it had none) and hid the
-  // satellites-in-view count. The constellations are left as the module ships them.
-  // ATGM336H / CASIC
-  gpsSendNmea("PCAS03,1,0,1,1,1,0,0,0");   // GGA GSA GSV RMC
+#if SKIRF_GPS_CONFIGURE
+  gpsSendNmea("PCAS03,1,0,1,1,1,0,0,0");   // ATGM336H / CASIC: GGA GSA GSV RMC
   gpsSendNmea("PCAS02,1000");              // 1 Hz
-  // MediaTek (PA6H, L80 ...): GLL,RMC,VTG,GGA,GSA,GSV
-  gpsSendNmea("PMTK314,0,1,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0");
-  gpsSendNmea("PMTK220,1000");
-  // u-blox NEO-6M / M8N: leave GGA GSA GSV RMC on, turn off the rest, 1 Hz
-  gpsSendNmea("PUBX,40,GLL,0,0,0,0,0,0");
-  gpsSendNmea("PUBX,40,VTG,0,0,0,0,0,0");
-  static const uint8_t ubxRate[] = { 0xB5, 0x62, 0x06, 0x08, 0x06, 0x00, 0xE8, 0x03, 0x01, 0x00, 0x01, 0x00, 0x01, 0x39 };
-  gpsSerial.write(ubxRate, sizeof(ubxRate));
-  delay(25);
+#endif
 }
 
 void gpsOpenPort(int rx, int tx, uint32_t baud) {
@@ -1398,7 +1391,7 @@ void gpsOpenPort(int rx, int tx, uint32_t baud) {
   gpsPassAtOpen = gps.passedChecksum();
   Serial.printf("GPS UART RX=%d TX=%d baud=%lu\n", rx, tx, (unsigned long)baud);
   delay(80);
-  gpsApplyConfig();
+  if (baud == 9600 && rx == gpsRxPin) gpsApplyConfig();
 }
 
 void readGPS() {
@@ -1406,7 +1399,7 @@ void readGPS() {
     char c = (char)gpsSerial.read();
     gpsChars++;
     gpsLastByteMs = millis();
-    if (gpsChars < 200) Serial.write(c);
+    if (gpsChars < 400) Serial.write(c);   // first bytes after each (re)open, for diagnosis
     gps.encode(c);
   }
   if (gps.location.isValid() && gps.location.age() < 4000) {
@@ -1432,9 +1425,9 @@ void readGPS() {
   }
   if (millis() - gpsDiagMs > 10000) {
     gpsDiagMs = millis();
-    Serial.printf("GPS: RX=%d TX=%d baud=%lu chars=%lu ok=%lu bad=%lu used=%d view=%d fix=%d hdop=%.1f\n",
+    Serial.printf("GPS: RX=%d TX=%d baud=%lu last byte %lus ago chars=%lu ok=%lu bad=%lu used=%d view=%d fix=%d hdop=%.1f\n",
                   gpsPinsSwapped ? gpsTxPin : gpsRxPin, gpsPinsSwapped ? gpsRxPin : gpsTxPin,
-                  (unsigned long)gpsBaudNow, (unsigned long)gps.charsProcessed(),
+                  (unsigned long)gpsBaudNow, (millis() - gpsLastByteMs) / 1000, (unsigned long)gps.charsProcessed(),
                   (unsigned long)gps.passedChecksum(), (unsigned long)gps.failedChecksum(),
                   gpsSats, gpsInView, (int)gpsValid, gps.hdop.isValid() ? gps.hdop.hdop() : 0.0);
   }

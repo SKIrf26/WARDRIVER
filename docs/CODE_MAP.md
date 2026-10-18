@@ -30,52 +30,52 @@ The sections below are the `// ----` and `// ====` headings in the sketch, in fi
 | 809 | GPS pins screen |
 | 1006 | Saved settings (NVS) + touch calibration |
 | 1356 | GPS serial: module set-up and reading |
-| 1467 | CAPTURE ENGINE |
-| 1517 | Session unique table (open addressing, PSRAM when present) |
-| 1566 | Session stats |
-| 1603 | Storage |
-| 1638 | WiGLE 1.6 CSV writer (batched) |
-| 1786 | Wi-Fi: direct ESP-IDF scan |
-| 1861 | BLE: async scan |
-| 1908 | Session control |
-| 2093 | ANIMATION LANES |
-| 2168 | Sprite blit (4-bit palette, optional body recolour) |
-| 2204 | Scene backgrounds |
-| 2220 | One frame |
-| 2369 | SCREENS: HOME / TRANSPORT / WARDRIVING / REPORT |
-| 2414 | HOME: radar scope + one primary action |
-| 2448 | Radar scope |
-| 2559 | Home chrome |
-| 2679 | Transport picker |
-| 2758 | Wardriving dashboard |
-| 3106 | Session report |
-| 3240 | GPS / NAVIGATION |
-| 3462 | Settings list + UI colors |
-| 3487 | DRAG-TO-SCROLL LISTS |
-| 3545 | Theme |
-| 3599 | Logs (files) |
-| 3672 | Choose network (Wi-Fi scan) |
-| 3731 | About & safety |
-| 3769 | WDGWars stats |
-| 3868 | Pro console |
-| 3927 | Dispatcher (called every loop) |
-| 3970 | Theme apply, file list, Wi-Fi scan |
-| 4097 | Big-key password keyboard (resistive-friendly) |
-| 4246 | Wi-Fi screen |
-| 4316 | Logs: select, delete, upload from the board |
-| 4470 | WDGWars WDGW Stats (GET /api/me) |
-| 4632 | Settings actions, Pro session, brightness |
-| 4818 | SETTINGS: grouped list, drag to scroll |
-| 5028 | Orientation |
-| 5078 | Home WiFi config |
-| 5207 | Soft AP + SD file portal |
-| 5385 | WDGWars CSV upload |
-| 5635 | Wigle CSV upload |
-| 5779 | Web portal pages (WiGLE, home Wi-Fi, file list, downloads) |
-| 6251 | Web portal hotspot + 60 s countdown screen |
-| 6530 | Boot splash |
-| 6589 | setup() |
-| 6683 | loop(): touch dispatch for every screen |
+| 1460 | CAPTURE ENGINE |
+| 1510 | Session unique table (open addressing, PSRAM when present) |
+| 1559 | Session stats |
+| 1596 | Storage |
+| 1631 | WiGLE 1.6 CSV writer (batched) |
+| 1779 | Wi-Fi: direct ESP-IDF scan |
+| 1854 | BLE: async scan |
+| 1901 | Session control |
+| 2086 | ANIMATION LANES |
+| 2161 | Sprite blit (4-bit palette, optional body recolour) |
+| 2197 | Scene backgrounds |
+| 2213 | One frame |
+| 2362 | SCREENS: HOME / TRANSPORT / WARDRIVING / REPORT |
+| 2407 | HOME: radar scope + one primary action |
+| 2441 | Radar scope |
+| 2552 | Home chrome |
+| 2672 | Transport picker |
+| 2751 | Wardriving dashboard |
+| 3099 | Session report |
+| 3233 | GPS / NAVIGATION |
+| 3455 | Settings list + UI colors |
+| 3480 | DRAG-TO-SCROLL LISTS |
+| 3538 | Theme |
+| 3592 | Logs (files) |
+| 3665 | Choose network (Wi-Fi scan) |
+| 3724 | About & safety |
+| 3762 | WDGWars stats |
+| 3861 | Pro console |
+| 3920 | Dispatcher (called every loop) |
+| 3963 | Theme apply, file list, Wi-Fi scan |
+| 4090 | Big-key password keyboard (resistive-friendly) |
+| 4239 | Wi-Fi screen |
+| 4309 | Logs: select, delete, upload from the board |
+| 4463 | WDGWars WDGW Stats (GET /api/me) |
+| 4625 | Settings actions, Pro session, brightness |
+| 4811 | SETTINGS: grouped list, drag to scroll |
+| 5021 | Orientation |
+| 5071 | Home WiFi config |
+| 5200 | Soft AP + SD file portal |
+| 5378 | WDGWars CSV upload |
+| 5628 | Wigle CSV upload |
+| 5772 | Web portal pages (WiGLE, home Wi-Fi, file list, downloads) |
+| 6244 | Web portal hotspot + 60 s countdown screen |
+| 6523 | Boot splash |
+| 6582 | setup() |
+| 6676 | loop(): touch dispatch for every screen |
 
 ## How a run works
 

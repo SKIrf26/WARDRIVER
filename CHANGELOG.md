@@ -6,8 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
-- GPS: the module now runs at its normal 1 Hz rate with the satellites-in-view sentences (GSV) switched on. Beta 1 asked for 5 Hz with GGA and RMC only, which left almost no room on a 9600 baud link and hid the satellites in view.
-- GPS: the constellation setting is left as the module ships it (Beta 1 forced GPS + BeiDou + GLONASS on ATGM336H modules).
+- GPS: the board no longer sends set-up commands to the module; it only listens. Beta 1 sent commands for several module makers (rate, sentences, constellations), and on the NM-CYD-C5 GPS module that stopped it talking after a few seconds. The module's factory output (1 Hz, 9600 baud, GGA, GSA, GSV and RMC) is all the wardriver needs. The old behaviour can be turned back on in the source (SKIRF_GPS_CONFIGURE).
 - GPS: the baud hunt also runs when bytes arrive but no sentence can be read, and now tries 9600, 38400 and 115200 baud with normal and swapped RX/TX. Before, a module at another baud was never found.
 
 ### Added
