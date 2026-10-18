@@ -11,7 +11,8 @@ Parts to add
 ------------
   GPS          Needed for logging. A module such as the ATGM336H (or any NMEA module at 9600 baud). By default the
                board reads the module's TX on IO4 and sends set-up commands on IO5. If yours is wired to other pins,
-               change them in Settings > GPS pins. The board asks the module for position updates 5 times a second.
+               change them in Settings > GPS pins. The board finds the module at 9600, 38400 or 115200 baud
+               and asks it for one position update a second.
   microSD      Recommended. FAT32, 32 GB or smaller is safest. Fit it BEFORE you switch the board on.
                Logs, and your saved Wi-Fi and API keys, are kept on the card. With no card they go to the board's
                own flash (about 1.5 MB, enough for short runs).

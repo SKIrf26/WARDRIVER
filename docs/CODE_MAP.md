@@ -1,6 +1,6 @@
 # Code map
 
-`src/SKIrf_WARDRIVER_C5_CYD/SKIrf_WARDRIVER_C5_CYD.ino` is a single Arduino sketch of about 7,200 lines. The Arduino IDE builds every `.ino` in a folder as one unit and generates function prototypes for it, so every `struct` and `enum` is declared near the top, before the first function, and the sketch stays in one file.
+`src/SKIrf_WARDRIVER_C5_CYD/SKIrf_WARDRIVER_C5_CYD.ino` is a single Arduino sketch of about 7,300 lines. The Arduino IDE builds every `.ino` in a folder as one unit and generates function prototypes for it, so every `struct` and `enum` is declared near the top, before the first function, and the sketch stays in one file.
 
 Beside it are four headers:
 
@@ -22,60 +22,60 @@ The sections below are the `// ----` and `// ====` headings in the sketch, in fi
 | 61 | USER CONFIG |
 | 80 | Pins and types |
 | 107 | Fonts and colours |
-| 223 | Globals: ride profile, state |
-| 267 | PRO MODE (operator console) |
-| 421 | SKIrf UI KIT |
-| 519 | Material icons (4-bit alpha masks from SKIrf_Icons.h) |
-| 694 | Title bar |
-| 801 | GPS pins screen |
-| 998 | Saved settings (NVS) + touch calibration |
-| 1348 | GPS serial: module set-up and reading |
-| 1444 | CAPTURE ENGINE |
-| 1494 | Session unique table (open addressing, PSRAM when present) |
-| 1543 | Session stats |
-| 1580 | Storage |
-| 1615 | WiGLE 1.6 CSV writer (batched) |
-| 1763 | Wi-Fi: direct ESP-IDF scan |
-| 1838 | BLE: async scan |
-| 1885 | Session control |
-| 2070 | ANIMATION LANES |
-| 2145 | Sprite blit (4-bit palette, optional body recolour) |
-| 2181 | Scene backgrounds |
-| 2197 | One frame |
-| 2346 | SCREENS: HOME / TRANSPORT / WARDRIVING / REPORT |
-| 2391 | HOME: radar scope + one primary action |
-| 2425 | Radar scope |
-| 2536 | Home chrome |
-| 2656 | Transport picker |
-| 2735 | Wardriving dashboard |
-| 3083 | Session report |
-| 3217 | GPS / NAVIGATION |
-| 3414 | Settings list + UI colors |
-| 3439 | DRAG-TO-SCROLL LISTS |
-| 3497 | Theme |
-| 3551 | Logs (files) |
-| 3624 | Choose network (Wi-Fi scan) |
-| 3683 | About & safety |
-| 3721 | WDGWars stats |
-| 3820 | Pro console |
-| 3879 | Dispatcher (called every loop) |
-| 3922 | Theme apply, file list, Wi-Fi scan |
-| 4049 | Big-key password keyboard (resistive-friendly) |
-| 4198 | Wi-Fi screen |
-| 4268 | Logs: select, delete, upload from the board |
-| 4422 | WDGWars WDGW Stats (GET /api/me) |
-| 4584 | Settings actions, Pro session, brightness |
-| 4770 | SETTINGS: grouped list, drag to scroll |
-| 4980 | Orientation |
-| 5030 | Home WiFi config |
-| 5159 | Soft AP + SD file portal |
-| 5337 | WDGWars CSV upload |
-| 5587 | Wigle CSV upload |
-| 5731 | Web portal pages (WiGLE, home Wi-Fi, file list, downloads) |
-| 6203 | Web portal hotspot + 60 s countdown screen |
-| 6482 | Boot splash |
-| 6541 | setup() |
-| 6635 | loop(): touch dispatch for every screen |
+| 231 | Globals: ride profile, state |
+| 275 | PRO MODE (operator console) |
+| 429 | SKIrf UI KIT |
+| 527 | Material icons (4-bit alpha masks from SKIrf_Icons.h) |
+| 702 | Title bar |
+| 809 | GPS pins screen |
+| 1006 | Saved settings (NVS) + touch calibration |
+| 1356 | GPS serial: module set-up and reading |
+| 1467 | CAPTURE ENGINE |
+| 1517 | Session unique table (open addressing, PSRAM when present) |
+| 1566 | Session stats |
+| 1603 | Storage |
+| 1638 | WiGLE 1.6 CSV writer (batched) |
+| 1786 | Wi-Fi: direct ESP-IDF scan |
+| 1861 | BLE: async scan |
+| 1908 | Session control |
+| 2093 | ANIMATION LANES |
+| 2168 | Sprite blit (4-bit palette, optional body recolour) |
+| 2204 | Scene backgrounds |
+| 2220 | One frame |
+| 2369 | SCREENS: HOME / TRANSPORT / WARDRIVING / REPORT |
+| 2414 | HOME: radar scope + one primary action |
+| 2448 | Radar scope |
+| 2559 | Home chrome |
+| 2679 | Transport picker |
+| 2758 | Wardriving dashboard |
+| 3106 | Session report |
+| 3240 | GPS / NAVIGATION |
+| 3462 | Settings list + UI colors |
+| 3487 | DRAG-TO-SCROLL LISTS |
+| 3545 | Theme |
+| 3599 | Logs (files) |
+| 3672 | Choose network (Wi-Fi scan) |
+| 3731 | About & safety |
+| 3769 | WDGWars stats |
+| 3868 | Pro console |
+| 3927 | Dispatcher (called every loop) |
+| 3970 | Theme apply, file list, Wi-Fi scan |
+| 4097 | Big-key password keyboard (resistive-friendly) |
+| 4246 | Wi-Fi screen |
+| 4316 | Logs: select, delete, upload from the board |
+| 4470 | WDGWars WDGW Stats (GET /api/me) |
+| 4632 | Settings actions, Pro session, brightness |
+| 4818 | SETTINGS: grouped list, drag to scroll |
+| 5028 | Orientation |
+| 5078 | Home WiFi config |
+| 5207 | Soft AP + SD file portal |
+| 5385 | WDGWars CSV upload |
+| 5635 | Wigle CSV upload |
+| 5779 | Web portal pages (WiGLE, home Wi-Fi, file list, downloads) |
+| 6251 | Web portal hotspot + 60 s countdown screen |
+| 6530 | Boot splash |
+| 6589 | setup() |
+| 6683 | loop(): touch dispatch for every screen |
 
 ## How a run works
 

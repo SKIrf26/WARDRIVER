@@ -180,6 +180,14 @@ int gpsPinsScroll = 0;
 TFT_eSPI tft = TFT_eSPI();
 XPT2046_Touchscreen touch(TOUCH_CS);
 TinyGPSPlus gps;
+// Satellites in view, from each constellation's GSV sentence (field 3). GGA only reports
+// satellites USED in a fix, which is 0 until the first fix, so on its own it looks dead.
+TinyGPSCustom gsvGP(gps, "GPGSV", 3), gsvGL(gps, "GLGSV", 3), gsvGB(gps, "GBGSV", 3), gsvBD(gps, "BDGSV", 3), gsvGA(gps, "GAGSV", 3);
+int gsvN[5] = {0, 0, 0, 0, 0};
+unsigned long gsvMs[5] = {0, 0, 0, 0, 0};
+int gpsInView = 0;
+uint32_t gpsCharsAtOpen = 0, gpsPassAtOpen = 0;   // TinyGPS counters when the port was last (re)opened
+unsigned long gpsDiagMs = 0;
 HardwareSerial gpsSerial(1);
 uint32_t gpsBaudNow = 9600;
 uint32_t gpsChars = 0;
@@ -1359,23 +1367,21 @@ void gpsSendNmea(const char* body) {
 }
 
 void gpsApplyConfig() {
-  // Only GGA (fix, sats, HDOP, altitude) + RMC (date, speed, course) at 5 Hz.
-  // 9600 baud cannot carry every sentence at 10 Hz — the old config overran the
-  // link, corrupting sentences so TinyGPS dropped fixes. ~150 B x 5 Hz fits.
+  // 1 Hz (every module's factory rate) with GGA (fix, satellites used, HDOP, altitude),
+  // GSA, GSV (satellites in view) and RMC (date, speed, course). Beta 1 asked for 5 Hz and
+  // GGA + RMC only: at 9600 baud that left almost no headroom (garbled sentences are
+  // dropped, so a module with a fix could still look like it had none) and hid the
+  // satellites-in-view count. The constellations are left as the module ships them.
   // ATGM336H / CASIC
-  gpsSendNmea("PCAS04,7");                 // GPS + BDS + GLONASS
-  gpsSendNmea("PCAS03,1,0,0,0,1,0,0,0");   // GGA + RMC only
-  gpsSendNmea("PCAS02,200");               // 5 Hz
-  // MediaTek (PA6H, L80 ...)
-  gpsSendNmea("PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0");
-  gpsSendNmea("PMTK220,200");
-  // u-blox NEO-6M / M8N: NMEA off for the chatty sentences ...
+  gpsSendNmea("PCAS03,1,0,1,1,1,0,0,0");   // GGA GSA GSV RMC
+  gpsSendNmea("PCAS02,1000");              // 1 Hz
+  // MediaTek (PA6H, L80 ...): GLL,RMC,VTG,GGA,GSA,GSV
+  gpsSendNmea("PMTK314,0,1,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0");
+  gpsSendNmea("PMTK220,1000");
+  // u-blox NEO-6M / M8N: leave GGA GSA GSV RMC on, turn off the rest, 1 Hz
   gpsSendNmea("PUBX,40,GLL,0,0,0,0,0,0");
-  gpsSendNmea("PUBX,40,GSA,0,0,0,0,0,0");
-  gpsSendNmea("PUBX,40,GSV,0,0,0,0,0,0");
   gpsSendNmea("PUBX,40,VTG,0,0,0,0,0,0");
-  // ... and UBX-CFG-RATE 200 ms (5 Hz)
-  static const uint8_t ubxRate[] = { 0xB5, 0x62, 0x06, 0x08, 0x06, 0x00, 0xC8, 0x00, 0x01, 0x00, 0x01, 0x00, 0xDE, 0x6A };
+  static const uint8_t ubxRate[] = { 0xB5, 0x62, 0x06, 0x08, 0x06, 0x00, 0xE8, 0x03, 0x01, 0x00, 0x01, 0x00, 0x01, 0x39 };
   gpsSerial.write(ubxRate, sizeof(ubxRate));
   delay(25);
 }
@@ -1388,6 +1394,8 @@ void gpsOpenPort(int rx, int tx, uint32_t baud) {
   gpsBaudNow = baud;
   gpsChars = 0;
   gpsLastByteMs = millis();
+  gpsCharsAtOpen = gps.charsProcessed();
+  gpsPassAtOpen = gps.passedChecksum();
   Serial.printf("GPS UART RX=%d TX=%d baud=%lu\n", rx, tx, (unsigned long)baud);
   delay(80);
   gpsApplyConfig();
@@ -1412,31 +1420,46 @@ void readGPS() {
     int s = (int)gps.satellites.value();
     if (s >= 0 && s <= 36) gpsSats = s;
   }
+  {
+    TinyGPSCustom* g5[5] = { &gsvGP, &gsvGL, &gsvGB, &gsvBD, &gsvGA };
+    unsigned long now = millis();
+    int sum = 0;
+    for (int i = 0; i < 5; i++) {
+      if (g5[i]->isUpdated()) { gsvN[i] = atoi(g5[i]->value()); gsvMs[i] = now; }
+      if (gsvMs[i] && now - gsvMs[i] < 5000) sum += gsvN[i];
+    }
+    gpsInView = sum;
+  }
+  if (millis() - gpsDiagMs > 10000) {
+    gpsDiagMs = millis();
+    Serial.printf("GPS: RX=%d TX=%d baud=%lu chars=%lu ok=%lu bad=%lu used=%d view=%d fix=%d hdop=%.1f\n",
+                  gpsPinsSwapped ? gpsTxPin : gpsRxPin, gpsPinsSwapped ? gpsRxPin : gpsTxPin,
+                  (unsigned long)gpsBaudNow, (unsigned long)gps.charsProcessed(),
+                  (unsigned long)gps.passedChecksum(), (unsigned long)gps.failedChecksum(),
+                  gpsSats, gpsInView, (int)gpsValid, gps.hdop.isValid() ? gps.hdop.hdop() : 0.0);
+  }
   if (gps.course.isValid()) gpsCourse = gps.course.deg();
   if (gps.speed.isValid()) gpsSpeed = gps.speed.mph();
   if (gps.altitude.isValid()) gpsAlt = gps.altitude.meters();
 
-  // Only hunt baud/pins when the UART is silent. Do NOT reset a talking module.
+  // Hunt for the right baud / pin order only when the link is silent, or when bytes
+  // arrive but not one sentence has passed its checksum (a module at another baud
+  // produces exactly that). A module that is talking sensibly is never touched.
   if (!gpsValid && (millis() - gpsLastHuntMs > 8000)) {
     gpsLastHuntMs = millis();
     bool quiet = (millis() - gpsLastByteMs > 4000);
-    Serial.printf("GPS hunt valid=%d sats=%d chars=%lu baud=%lu swapped=%d quiet=%d\n",
-                  (int)gpsValid, gpsSats, (unsigned long)gpsChars,
-                  (unsigned long)gpsBaudNow, (int)gpsPinsSwapped, (int)quiet);
-    if (quiet) {
-      gpsHuntStep++;
-      if (gpsHuntStep == 1) {
-        gpsOpenPort(gpsRxPin, gpsTxPin, 115200);
-      } else if (gpsHuntStep == 2) {
-        gpsPinsSwapped = true;
-        gpsOpenPort(gpsTxPin, gpsRxPin, 9600);
-      } else if (gpsHuntStep == 3) {
-        gpsOpenPort(gpsTxPin, gpsRxPin, 115200);
-      } else {
-        gpsHuntStep = 0;
-        gpsPinsSwapped = false;
-        gpsOpenPort(gpsRxPin, gpsTxPin, 9600);
-      }
+    bool garbled = (gps.charsProcessed() - gpsCharsAtOpen > 600) && (gps.passedChecksum() == gpsPassAtOpen);
+    Serial.printf("GPS hunt valid=%d sats=%d view=%d chars=%lu baud=%lu swapped=%d quiet=%d garbled=%d\n",
+                  (int)gpsValid, gpsSats, gpsInView, (unsigned long)gpsChars,
+                  (unsigned long)gpsBaudNow, (int)gpsPinsSwapped, (int)quiet, (int)garbled);
+    if (quiet || garbled) {
+      static const uint32_t bauds[3] = { 9600, 38400, 115200 };
+      gpsHuntStep = (gpsHuntStep + 1) % 6;            // 9600, 38400, 115200, then the same with RX/TX swapped
+      if (gpsTxPin < 0 && gpsHuntStep >= 3) gpsHuntStep = 0;   // nothing to swap with an RX-only module
+      gpsPinsSwapped = gpsHuntStep >= 3;
+      uint32_t bd = bauds[gpsHuntStep % 3];
+      if (gpsPinsSwapped) gpsOpenPort(gpsTxPin, gpsRxPin, bd);
+      else gpsOpenPort(gpsRxPin, gpsTxPin, bd);
     }
   }
 }
@@ -2798,7 +2821,7 @@ void wdDrawStatus(LovyanGFX &g, int bx, int by, int w, int h) {
   else if (s2 == "RECORDING") s2 = "Recording";
   else if (s2 == "SCAN BLE") s2 = "Scanning Bluetooth";
   else if (s2.startsWith("SCAN")) { s2.replace("SCAN", "Scanning"); s2.replace("GHZ", "GHz"); }
-  else if (s2 == "WAITING FOR GPS") s2 = "Waiting for a GPS fix";
+  else if (s2 == "WAITING FOR GPS") s2 = gpsLinkState() == 2 ? "No data from the GPS - check wiring" : "Waiting for a GPS fix";
   else if (s2 == "WAIT GPS SATS") s2 = "Waiting for more satellites";
   g.setFont(F_XS);
   g.setTextDatum(ML_DATUM);
@@ -3215,6 +3238,13 @@ void drawSummaryScreen() {
 }
 
 // ================= GPS / NAVIGATION =================
+// 0 fix, 1 searching (talking, no fix), 2 no data on the wire, 3 data but unreadable (baud / noise)
+int gpsLinkState() {
+  if (gpsValid) return 0;
+  if (millis() - gpsLastByteMs > 3000) return 2;
+  if (gps.charsProcessed() > 400 && gps.passedChecksum() == 0) return 3;
+  return 1;
+}
 int satsToBars(int sats) {
   if (sats <= 0) return 0;
   if (sats <= 2) return 1;
@@ -3261,10 +3291,17 @@ void gpsLayout(GpsGeom &G) {
 void gpsCardValue(int i, char* v, size_t n, uint16_t &col) {
   col = gpsValid ? UI_TEXT : UI_DIM;
   switch (i) {
-    case 0: snprintf(v, n, "%d", gpsSats); col = UI_TEXT; break;
+    case 0:
+      if (gpsInView > 0 && !gpsValid) snprintf(v, n, "%d / %d", gpsSats, gpsInView);
+      else snprintf(v, n, "%d", gpsSats);
+      col = UI_TEXT; break;
     case 1:
       if (gpsValid) { snprintf(v, n, gps.hdop.isValid() && gps.hdop.hdop() < 2.0 ? "3D LOCK" : "LOCKED"); col = getAccent(); }
-      else { snprintf(v, n, "SEARCH"); col = C_NEW; }
+      else {
+        int ls = gpsLinkState();
+        snprintf(v, n, "%s", ls == 2 ? "NO DATA" : (ls == 3 ? "BAD BAUD" : "SEARCH"));
+        col = ls >= 2 ? C_BAD : C_NEW;
+      }
       break;
     case 2: if (gpsValid) snprintf(v, n, "%.0f ft", gpsAlt * 3.28084); else snprintf(v, n, "---"); break;
     case 3: if (gpsValid) snprintf(v, n, "%.1f mph", gpsSpeed); else snprintf(v, n, "---"); break;
@@ -3275,22 +3312,27 @@ void gpsCardValue(int i, char* v, size_t n, uint16_t &col) {
 
 void gpsDrawCard(LovyanGFX &g, int bx, int by, int w, int h, int i) {
   static const char* lab[6] = { "Satellites", "Fix", "Altitude", "Speed", "Latitude", "Longitude" };
+  const char* lab0 = (i == 0 && gpsInView > 0 && !gpsValid) ? "Used / in view" : lab[i];
   char v[24]; uint16_t col;
   gpsCardValue(i, v, sizeof(v), col);
-  if (i == 1) { if (gpsValid) snprintf(v, sizeof(v), "%s", gps.hdop.isValid() && gps.hdop.hdop() < 2.0 ? "3D lock" : "Locked"); else snprintf(v, sizeof(v), "Searching"); }
+  if (i == 1) {
+    int ls = gpsLinkState();
+    if (gpsValid) snprintf(v, sizeof(v), "%s", gps.hdop.isValid() && gps.hdop.hdop() < 2.0 ? "3D lock" : "Locked");
+    else snprintf(v, sizeof(v), "%s", ls == 2 ? "No data" : (ls == 3 ? "Bad data" : "Searching"));
+  }
   uint16_t fill = uiCardFill();
   g.fillRoundRect(bx, by, w, h, 10, fill);
   g.setFont(F_XS);
   g.setTextDatum(TL_DATUM);
   g.setTextColor(UI_MUTE, fill);
-  g.drawString(lab[i], bx + 10, by + 7);
+  g.drawString(lab0, bx + 10, by + 7);
   g.setTextDatum(BL_DATUM);
   g.setFont(i >= 4 ? F_M : F_L);
   if (g.textWidth(v) > w - 16) g.setFont(F_M);
   g.setTextColor(col == UI_TEXT || col == UI_DIM ? col : col, fill);
   g.drawString(v, bx + 9, by + h - 5);
   if (i == 0) {
-    int bars = satsToBars(gpsSats);
+    int bars = satsToBars(gpsValid ? gpsSats : gpsInView / 2);
     for (int k = 0; k < 5; k++) {
       int bh = 4 + k * 3, xx = bx + w - 34 + k * 5, yy = by + h - 8 - bh;
       g.fillRect(xx, yy, 3, bh, k < bars ? getAccent() : blend565(fill, TFT_WHITE, 30));
@@ -3363,9 +3405,14 @@ void gpsDrawSig(LovyanGFX &g, int bx, int by, int w, int h) {
   if (!land) {
     g.setFont(F_XS);
     g.setTextColor(UI_DIM, TFT_BLACK);
-    if (gps.hdop.isValid()) snprintf(b, sizeof(b), "HDOP %.1f", gps.hdop.hdop());
+    int ls = gpsLinkState();
+    if (ls == 2) { g.setTextColor(C_BAD, TFT_BLACK); snprintf(b, sizeof(b), "No data on RX %d", gpsPinsSwapped ? gpsTxPin : gpsRxPin); }
+    else if (ls == 3) { g.setTextColor(C_BAD, TFT_BLACK); snprintf(b, sizeof(b), "Unreadable: baud?"); }
+    else if (ls == 1) snprintf(b, sizeof(b), gpsInView ? "%d in view, no fix" : "Data OK, no sats yet", gpsInView);
+    else if (gps.hdop.isValid()) snprintf(b, sizeof(b), "HDOP %.1f", gps.hdop.hdop());
     else snprintf(b, sizeof(b), "HDOP --");
     g.drawString(b, bx + 4, by + h - 28);
+    g.setTextColor(UI_DIM, TFT_BLACK);
     if (gps.time.isValid()) snprintf(b, sizeof(b), "%02d:%02d:%02d UTC", gps.time.hour(), gps.time.minute(), gps.time.second());
     else snprintf(b, sizeof(b), "--:--:-- UTC");
     g.drawString(b, bx + 4, by + h - 15);
@@ -3392,14 +3439,15 @@ void updateGPSScreen() {
   for (int i = 0; i < 6; i++) {
     char v[24]; uint16_t col;
     gpsCardValue(i, v, sizeof(v), col);
-    String key = String(v) + (i == 0 ? String(satsToBars(gpsSats)) : String(""));
+    String key = String(v) + (i == 0 ? String(satsToBars(gpsValid ? gpsSats : gpsInView / 2)) : String(""));
     if (key == last[i]) continue;
     last[i] = key;
     paintRegion(G.card[i].x, G.card[i].y, G.card[i].w, G.card[i].h, [&](LovyanGFX &g, int bx, int by) { gpsDrawCard(g, bx, by, G.card[i].w, G.card[i].h, i); });
   }
   bool moving = gpsValid && gpsSpeed >= 0.6;
   int cKey = moving ? (int)(gpsCourse / 3) : -1;
-  int sKey = (gpsValid ? 1 : 0) + (gps.time.isValid() ? gps.time.second() * 2 : 0) + (moving ? (int)gpsCourse * 1000 : 0);
+  int sKey = (gpsValid ? 1 : 0) + (gps.time.isValid() ? gps.time.second() * 2 : 0) + (moving ? (int)gpsCourse * 1000 : 0)
+           + gpsLinkState() * 200 + gpsInView * 7;
   if (cKey != lastCourse || moving) {
     lastCourse = cKey;
     paintRegion(G.compass.x, G.compass.y, G.compass.w, G.compass.h, [&](LovyanGFX &g, int bx, int by) { gpsDrawCompass(g, bx, by, G.compass.w, G.compass.h); });
