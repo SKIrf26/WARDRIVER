@@ -182,9 +182,16 @@ XPT2046_Touchscreen touch(TOUCH_CS);
 TinyGPSPlus gps;
 // Satellites in view, from each constellation's GSV sentence (field 3). GGA only reports
 // satellites USED in a fix, which is 0 until the first fix, so on its own it looks dead.
-TinyGPSCustom gsvGP(gps, "GPGSV", 3), gsvGL(gps, "GLGSV", 3), gsvGB(gps, "GBGSV", 3), gsvBD(gps, "BDGSV", 3), gsvGA(gps, "GAGSV", 3);
-int gsvN[5] = {0, 0, 0, 0, 0};
-unsigned long gsvMs[5] = {0, 0, 0, 0, 0};
+TinyGPSCustom gsvGP(gps, "GPGSV", 3), gsvGL(gps, "GLGSV", 3), gsvGB(gps, "GBGSV", 3), gsvBD(gps, "BDGSV", 3), gsvGA(gps, "GAGSV", 3), gsvGN(gps, "GNGSV", 3);
+int gsvN[6] = {0, 0, 0, 0, 0, 0};
+unsigned long gsvMs[6] = {0, 0, 0, 0, 0, 0};
+// Link lock: once good sentences arrive on a pin/baud setting, the board stays there for good
+bool gpsLinkLocked = false;
+// The module's own text messages ($GPTXT / $GNTXT), e.g. ATGM336H "ANTENNA OPEN" / "ANTENNA OK"
+char gpsLine[100]; int gpsLineLen = 0;
+char gpsTxt[40] = "";
+char gpsAnt[8] = "";        // "OK", "OPEN", "SHORT" or "" (module does not report it)
+unsigned long gpsTxtMs = 0;
 int gpsInView = 0;
 uint32_t gpsCharsAtOpen = 0, gpsPassAtOpen = 0;   // TinyGPS counters when the port was last (re)opened
 unsigned long gpsDiagMs = 0;
@@ -1401,6 +1408,23 @@ void readGPS() {
     gpsLastByteMs = millis();
     if (gpsChars < 400) Serial.write(c);   // first bytes after each (re)open, for diagnosis
     gps.encode(c);
+    if (c == '$') gpsLineLen = 0;
+    if (c == '\n' || c == '\r') {
+      if (gpsLineLen > 6) {
+        gpsLine[gpsLineLen] = 0;
+        if (!strncmp(gpsLine + 3, "TXT", 3)) {           // $xxTXT,nn,nn,nn,text*CS
+          const char* s = gpsLine; int commas = 0;
+          while (*s && commas < 4) { if (*s == ',') commas++; s++; }
+          int k = 0; while (s[k] && s[k] != '*' && k < (int)sizeof(gpsTxt) - 1) { gpsTxt[k] = s[k]; k++; } gpsTxt[k] = 0;
+          gpsTxtMs = millis();
+          if (strstr(gpsTxt, "ANTENNA OPEN")) strcpy(gpsAnt, "OPEN");
+          else if (strstr(gpsTxt, "ANTENNA SHORT")) strcpy(gpsAnt, "SHORT");
+          else if (strstr(gpsTxt, "ANTENNA OK")) strcpy(gpsAnt, "OK");
+          Serial.printf("GPS module says: %s\n", gpsTxt);
+        }
+      }
+      gpsLineLen = 0;
+    } else if (gpsLineLen < (int)sizeof(gpsLine) - 1) gpsLine[gpsLineLen++] = c;
   }
   if (gps.location.isValid() && gps.location.age() < 4000) {
     gpsLat = gps.location.lat();
@@ -1414,10 +1438,10 @@ void readGPS() {
     if (s >= 0 && s <= 36) gpsSats = s;
   }
   {
-    TinyGPSCustom* g5[5] = { &gsvGP, &gsvGL, &gsvGB, &gsvBD, &gsvGA };
+    TinyGPSCustom* g5[6] = { &gsvGP, &gsvGL, &gsvGB, &gsvBD, &gsvGA, &gsvGN };
     unsigned long now = millis();
     int sum = 0;
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 6; i++) {
       if (g5[i]->isUpdated()) { gsvN[i] = atoi(g5[i]->value()); gsvMs[i] = now; }
       if (gsvMs[i] && now - gsvMs[i] < 5000) sum += gsvN[i];
     }
@@ -1425,6 +1449,7 @@ void readGPS() {
   }
   if (millis() - gpsDiagMs > 10000) {
     gpsDiagMs = millis();
+    if (gpsAnt[0]) Serial.printf("GPS antenna: %s\n", gpsAnt);
     Serial.printf("GPS: RX=%d TX=%d baud=%lu last byte %lus ago chars=%lu ok=%lu bad=%lu used=%d view=%d fix=%d hdop=%.1f\n",
                   gpsPinsSwapped ? gpsTxPin : gpsRxPin, gpsPinsSwapped ? gpsRxPin : gpsTxPin,
                   (unsigned long)gpsBaudNow, (millis() - gpsLastByteMs) / 1000, (unsigned long)gps.charsProcessed(),
@@ -1438,7 +1463,11 @@ void readGPS() {
   // Hunt for the right baud / pin order only when the link is silent, or when bytes
   // arrive but not one sentence has passed its checksum (a module at another baud
   // produces exactly that). A module that is talking sensibly is never touched.
-  if (!gpsValid && (millis() - gpsLastHuntMs > 8000)) {
+  if (!gpsLinkLocked && gps.passedChecksum() > gpsPassAtOpen + 2) {
+    gpsLinkLocked = true;
+    Serial.printf("GPS link locked: RX=%d TX=%d baud=%lu\n", gpsPinsSwapped ? gpsTxPin : gpsRxPin, gpsPinsSwapped ? gpsRxPin : gpsTxPin, (unsigned long)gpsBaudNow);
+  }
+  if (!gpsLinkLocked && !gpsValid && (millis() - gpsLastHuntMs > 8000)) {
     gpsLastHuntMs = millis();
     bool quiet = (millis() - gpsLastByteMs > 4000);
     bool garbled = (gps.charsProcessed() - gpsCharsAtOpen > 600) && (gps.passedChecksum() == gpsPassAtOpen);
@@ -3236,7 +3265,7 @@ void drawSummaryScreen() {
 // 0 fix, 1 searching (talking, no fix), 2 no data on the wire, 3 data but unreadable (baud / noise)
 int gpsLinkState() {
   if (gpsValid) return 0;
-  if (millis() - gpsLastByteMs > 3000) return 2;
+  if (millis() - gpsLastByteMs > 6000) return 2;
   if (gps.charsProcessed() > 400 && gps.passedChecksum() == 0) return 3;
   return 1;
 }
@@ -3294,8 +3323,9 @@ void gpsCardValue(int i, char* v, size_t n, uint16_t &col) {
       if (gpsValid) { snprintf(v, n, gps.hdop.isValid() && gps.hdop.hdop() < 2.0 ? "3D LOCK" : "LOCKED"); col = getAccent(); }
       else {
         int ls = gpsLinkState();
-        snprintf(v, n, "%s", ls == 2 ? "NO DATA" : (ls == 3 ? "BAD BAUD" : "SEARCH"));
-        col = ls >= 2 ? C_BAD : C_NEW;
+        bool antBad = gpsAnt[0] && strcmp(gpsAnt, "OK");
+        snprintf(v, n, "%s", ls == 2 ? "NO DATA" : (ls == 3 ? "BAD BAUD" : (antBad ? "NO ANTENNA" : "SEARCH")));
+        col = (ls >= 2 || antBad) ? C_BAD : C_NEW;
       }
       break;
     case 2: if (gpsValid) snprintf(v, n, "%.0f ft", gpsAlt * 3.28084); else snprintf(v, n, "---"); break;
@@ -3313,7 +3343,7 @@ void gpsDrawCard(LovyanGFX &g, int bx, int by, int w, int h, int i) {
   if (i == 1) {
     int ls = gpsLinkState();
     if (gpsValid) snprintf(v, sizeof(v), "%s", gps.hdop.isValid() && gps.hdop.hdop() < 2.0 ? "3D lock" : "Locked");
-    else snprintf(v, sizeof(v), "%s", ls == 2 ? "No data" : (ls == 3 ? "Bad data" : "Searching"));
+    else snprintf(v, sizeof(v), "%s", ls == 2 ? "No data" : (ls == 3 ? "Bad data" : ((gpsAnt[0] && strcmp(gpsAnt, "OK")) ? "No antenna" : "Searching")));
   }
   uint16_t fill = uiCardFill();
   g.fillRoundRect(bx, by, w, h, 10, fill);
@@ -3408,7 +3438,9 @@ void gpsDrawSig(LovyanGFX &g, int bx, int by, int w, int h) {
     else snprintf(b, sizeof(b), "HDOP --");
     g.drawString(b, bx + 4, by + h - 28);
     g.setTextColor(UI_DIM, TFT_BLACK);
-    if (gps.time.isValid()) snprintf(b, sizeof(b), "%02d:%02d:%02d UTC", gps.time.hour(), gps.time.minute(), gps.time.second());
+    if (!gpsValid && gpsAnt[0] && strcmp(gpsAnt, "OK")) { g.setTextColor(C_BAD, TFT_BLACK); snprintf(b, sizeof(b), "Antenna %s", gpsAnt); }
+    else if (!gpsValid && gpsAnt[0]) snprintf(b, sizeof(b), "Antenna OK");
+    else if (gps.time.isValid()) snprintf(b, sizeof(b), "%02d:%02d:%02d UTC", gps.time.hour(), gps.time.minute(), gps.time.second());
     else snprintf(b, sizeof(b), "--:--:-- UTC");
     g.drawString(b, bx + 4, by + h - 15);
   }
@@ -3442,7 +3474,7 @@ void updateGPSScreen() {
   bool moving = gpsValid && gpsSpeed >= 0.6;
   int cKey = moving ? (int)(gpsCourse / 3) : -1;
   int sKey = (gpsValid ? 1 : 0) + (gps.time.isValid() ? gps.time.second() * 2 : 0) + (moving ? (int)gpsCourse * 1000 : 0)
-           + gpsLinkState() * 200 + gpsInView * 7;
+           + gpsLinkState() * 200 + gpsInView * 7 + (int)gpsAnt[0] * 3;
   if (cKey != lastCourse || moving) {
     lastCourse = cKey;
     paintRegion(G.compass.x, G.compass.y, G.compass.w, G.compass.h, [&](LovyanGFX &g, int bx, int by) { gpsDrawCompass(g, bx, by, G.compass.w, G.compass.h); });

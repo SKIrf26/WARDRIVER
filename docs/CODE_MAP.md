@@ -22,60 +22,60 @@ The sections below are the `// ----` and `// ====` headings in the sketch, in fi
 | 61 | USER CONFIG |
 | 80 | Pins and types |
 | 107 | Fonts and colours |
-| 231 | Globals: ride profile, state |
-| 275 | PRO MODE (operator console) |
-| 429 | SKIrf UI KIT |
-| 527 | Material icons (4-bit alpha masks from SKIrf_Icons.h) |
-| 702 | Title bar |
-| 809 | GPS pins screen |
-| 1006 | Saved settings (NVS) + touch calibration |
-| 1356 | GPS serial: module set-up and reading |
-| 1460 | CAPTURE ENGINE |
-| 1510 | Session unique table (open addressing, PSRAM when present) |
-| 1559 | Session stats |
-| 1596 | Storage |
-| 1631 | WiGLE 1.6 CSV writer (batched) |
-| 1779 | Wi-Fi: direct ESP-IDF scan |
-| 1854 | BLE: async scan |
-| 1901 | Session control |
-| 2087 | ANIMATION LANES |
-| 2162 | Sprite blit (4-bit palette, optional body recolour) |
-| 2198 | Scene backgrounds |
-| 2214 | One frame |
-| 2364 | SCREENS: HOME / TRANSPORT / WARDRIVING / REPORT |
-| 2409 | HOME: radar scope + one primary action |
-| 2443 | Radar scope |
-| 2554 | Home chrome |
-| 2674 | Transport picker |
-| 2753 | Wardriving dashboard |
-| 3101 | Session report |
-| 3235 | GPS / NAVIGATION |
-| 3457 | Settings list + UI colors |
-| 3482 | DRAG-TO-SCROLL LISTS |
-| 3540 | Theme |
-| 3594 | Logs (files) |
-| 3667 | Choose network (Wi-Fi scan) |
-| 3726 | About & safety |
-| 3764 | WDGWars stats |
-| 3863 | Pro console |
-| 3922 | Dispatcher (called every loop) |
-| 3965 | Theme apply, file list, Wi-Fi scan |
-| 4092 | Big-key password keyboard (resistive-friendly) |
-| 4241 | Wi-Fi screen |
-| 4311 | Logs: select, delete, upload from the board |
-| 4465 | WDGWars WDGW Stats (GET /api/me) |
-| 4627 | Settings actions, Pro session, brightness |
-| 4813 | SETTINGS: grouped list, drag to scroll |
-| 5023 | Orientation |
-| 5073 | Home WiFi config |
-| 5202 | Soft AP + SD file portal |
-| 5380 | WDGWars CSV upload |
-| 5630 | Wigle CSV upload |
-| 5774 | Web portal pages (WiGLE, home Wi-Fi, file list, downloads) |
-| 6246 | Web portal hotspot + 60 s countdown screen |
-| 6529 | Boot splash |
-| 6588 | setup() |
-| 6682 | loop(): touch dispatch for every screen |
+| 238 | Globals: ride profile, state |
+| 282 | PRO MODE (operator console) |
+| 436 | SKIrf UI KIT |
+| 534 | Material icons (4-bit alpha masks from SKIrf_Icons.h) |
+| 709 | Title bar |
+| 816 | GPS pins screen |
+| 1013 | Saved settings (NVS) + touch calibration |
+| 1363 | GPS serial: module set-up and reading |
+| 1489 | CAPTURE ENGINE |
+| 1539 | Session unique table (open addressing, PSRAM when present) |
+| 1588 | Session stats |
+| 1625 | Storage |
+| 1660 | WiGLE 1.6 CSV writer (batched) |
+| 1808 | Wi-Fi: direct ESP-IDF scan |
+| 1883 | BLE: async scan |
+| 1930 | Session control |
+| 2116 | ANIMATION LANES |
+| 2191 | Sprite blit (4-bit palette, optional body recolour) |
+| 2227 | Scene backgrounds |
+| 2243 | One frame |
+| 2393 | SCREENS: HOME / TRANSPORT / WARDRIVING / REPORT |
+| 2438 | HOME: radar scope + one primary action |
+| 2472 | Radar scope |
+| 2583 | Home chrome |
+| 2703 | Transport picker |
+| 2782 | Wardriving dashboard |
+| 3130 | Session report |
+| 3264 | GPS / NAVIGATION |
+| 3489 | Settings list + UI colors |
+| 3514 | DRAG-TO-SCROLL LISTS |
+| 3572 | Theme |
+| 3626 | Logs (files) |
+| 3699 | Choose network (Wi-Fi scan) |
+| 3758 | About & safety |
+| 3796 | WDGWars stats |
+| 3895 | Pro console |
+| 3954 | Dispatcher (called every loop) |
+| 3997 | Theme apply, file list, Wi-Fi scan |
+| 4124 | Big-key password keyboard (resistive-friendly) |
+| 4273 | Wi-Fi screen |
+| 4343 | Logs: select, delete, upload from the board |
+| 4497 | WDGWars WDGW Stats (GET /api/me) |
+| 4659 | Settings actions, Pro session, brightness |
+| 4845 | SETTINGS: grouped list, drag to scroll |
+| 5055 | Orientation |
+| 5105 | Home WiFi config |
+| 5234 | Soft AP + SD file portal |
+| 5412 | WDGWars CSV upload |
+| 5662 | Wigle CSV upload |
+| 5806 | Web portal pages (WiGLE, home Wi-Fi, file list, downloads) |
+| 6278 | Web portal hotspot + 60 s countdown screen |
+| 6561 | Boot splash |
+| 6620 | setup() |
+| 6714 | loop(): touch dispatch for every screen |
 
 ## How a run works
 

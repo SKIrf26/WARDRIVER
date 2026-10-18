@@ -11,7 +11,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - GPS: faster first fix. The Wi-Fi radio is now switched off whenever nothing uses it (after the start-up portal, after a run, and away from the Wi-Fi screens), the start-up hotspot runs at low power (8.5 dBm), and the screen animations slow to 10 frames a second until the GPS has a fix. The radio and display bus sit a few centimetres from the GPS antenna, and their noise was slowing or blocking the first fix.
 
+- GPS: once good sentences arrive the board stays on that pin and baud setting. Before, a pause of a few seconds made it switch to another speed even though it had already found the module, so the screen flipped between "No data" and "Data OK".
+- GPS: satellites in view are also read from $GNGSV sentences.
+
 ### Added
+- GPS screen: shows the module's antenna report when it sends one (ATGM336H and others report ANTENNA OK / OPEN / SHORT); FIX says NO ANTENNA when the antenna is open or shorted.
 - GPS screen: SATELLITES shows "used / in view" while searching, and FIX says NO DATA or BAD BAUD when the link is the problem. The wardrive screen says "No data from the GPS - check wiring" instead of waiting.
 - Serial Monitor: a "GPS:" status line every 10 seconds (pins, baud, characters, good and bad sentences, satellites used and in view).
 
