@@ -1,0 +1,66 @@
+4. FREQUENTLY ASKED QUESTIONS
+=============================
+
+Does it transmit anything?
+  It does not attack, jam or join other people's networks. To find networks it sends ordinary Wi-Fi probe requests
+  (as every phone does), and on foot it uses active Bluetooth scanning. It runs its own open hotspot for 60 seconds
+  at start-up for the web portal, and joins YOUR home Wi-Fi when you upload.
+
+Which bands does it scan?
+  Wi-Fi 2.4 GHz and 5 GHz, and Bluetooth LE, in every sweep. The counters show each one.
+
+What is "unique"?
+  Each network or device is counted once per run. If you later pass much closer to it (10 dB stronger), it is logged
+  again so WiGLE can place it better, but it is not counted twice.
+
+What does picking a ride change?
+  How often it sweeps and how long it listens on each channel:
+    CAR         every 2.5 s, short dwell, passive Bluetooth, skips the slow 5 GHz radar channels on 2 of 3 sweeps
+    MOTORCYCLE  every 3.5 s, a little longer dwell, balanced Bluetooth
+    WALK/BIKE   every 6 s, longest dwell, active Bluetooth, every channel every sweep
+  It also picks the vehicle that drives across the screen.
+
+Why does it say WAITING FOR A GPS FIX?
+  A run only scans and logs while the GPS has a fix (4 satellites, 5 on foot). This keeps every log row on the map.
+
+What is in a log?
+  A WiGLE CSV 1.6 file: one row per network or device with its address, name, security, time, channel, frequency,
+  signal strength, latitude, longitude, altitude and accuracy. Files are named SKIrf_WD_C_ (car), _M_ (moto) or _W_
+  (walk/bike) followed by the date and time. They upload to WiGLE as they are, and open in any spreadsheet.
+
+Where are the logs?
+  On the microSD card, in its top folder. With no card, in the board's own flash. You can see them on the Logs screen
+  and in the web portal.
+
+How do I get the files onto my computer?
+  Take the card out and copy them, or use the web portal: download one file, or DOWNLOAD ALL as a .zip.
+
+How do I upload to WiGLE?
+  Make an account on wigle.net, open your Account page and copy the API Name and API Token (not your password). Save
+  them in the web portal (WIGLE API KEY). Save your home Wi-Fi. Then on the board: LOGS, select runs, WIGLE.
+
+What is WDGWars?
+  A wardriving game and leaderboard at wdgwars.pl. Save your API key from your WDGWars profile in the web portal.
+  LOGS > WDGW uploads runs, and Settings > WDGWars stats shows your totals.
+
+What is Pro mode?
+  An operator console for people who want to tune the scanner: Wi-Fi and Bluetooth on or off, Bluetooth duty, sweep
+  interval, RSSI windows, GPS accuracy, skip open networks, de-duplication, channel plan, and a live session readout.
+  It uses a plain green-on-black look. Turn it off with "Exit Pro mode".
+
+Does it have a battery?
+  No. It runs from USB power: a car USB port or a power bank works well.
+
+Can I use the board while driving?
+  Set it up and tap START before you set off, or let a passenger use it. Do not look at or touch the screen while
+  driving. The STOP button needs two taps so a bump will not end your run.
+
+How do I update?
+  Flash the newer .bin over USB (help/2_FLASHING.txt).
+
+Is it legal to use?
+  Listening to openly broadcast Wi-Fi and Bluetooth is lawful in many places, but laws differ. You are responsible for
+  following the laws where you are. Never join networks you are not allowed to use.
+
+Where do I report a problem or ask for a feature?
+  On the project page: Issues tab, Bug report or Feature request form.

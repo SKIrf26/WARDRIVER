@@ -1,0 +1,20 @@
+HELP - FIND YOUR PROBLEM FAST
+=============================
+
+I want to put the software on my board ..................... help/2_FLASHING.txt
+The computer does not see the board ........................ Use a USB-C DATA cable and the LEFT USB-C port. Hold BOOT while
+                                                              plugging in. (help/3_TROUBLESHOOTING.txt, A)
+The screen is black or the colours are wrong ................ help/3_TROUBLESHOOTING.txt, B
+Touch does nothing / lands in the wrong place ............... Settings > Touch calibration, or hold BOOT while powering on
+                                                              (help/3_TROUBLESHOOTING.txt, C)
+It says WAITING FOR A GPS FIX and never starts .................... help/3_TROUBLESHOOTING.txt, D
+It finds few or no networks ................................. help/3_TROUBLESHOOTING.txt, E
+Logs are not saved to the SD card ........................... help/3_TROUBLESHOOTING.txt, F
+I cannot reach the web portal ............................... help/3_TROUBLESHOOTING.txt, G
+Upload to WiGLE or WDGWars fails ............................ help/3_TROUBLESHOOTING.txt, H
+No sound ..................................................... Needs a passive buzzer on IO26 and GND (help/3_TROUBLESHOOTING.txt, I)
+How do I update to a newer release? ......................... Flash the new .bin again (help/2_FLASHING.txt)
+Anything else ................................................ help/4_FAQ.txt and the user guide (docs folder)
+
+If it is still stuck, open an issue on the project page (Bug report form). Include the release shown on the boot
+screen (BETA 1), what you did, and what the Serial Monitor (115200 baud) printed.

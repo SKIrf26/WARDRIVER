@@ -1,0 +1,77 @@
+3. TROUBLESHOOTING
+==================
+
+The board prints start-up messages over USB that help a lot: open any serial terminal at 115200 baud on the port you
+flashed through (the LEFT USB-C port). Every run start and stop is printed, with the log file name.
+
+A. The computer does not see the board / flashing fails
+   - Use a USB-C DATA cable. Try another USB port on the computer.
+   - Use the LEFT USB-C port for flashing (the USB-UART port). The middle port needs download mode by hand: hold BOOT,
+     tap RESET, release BOOT.
+   - Hold the board's BOOT button while plugging the cable in, release it, then try again.
+   - If you have a buzzer fitted and flashing keeps failing, unplug it while you flash (IO26 is a boot-mode pin).
+
+B. Nothing shows on the screen, or the colours are wrong
+   - Unplug the board, wait 10 seconds, plug it in again. Try another cable or USB port.
+   - Flash the .bin again (help/2_FLASHING.txt).
+   - Red and blue look swapped everywhere (the accent that should be green looks right, but orange looks blue):
+     your board has a different panel. Build from source with SKIRF_PANEL_BGR set to 0 at the top of the sketch
+     (docs/BUILDING.md), and please report it with a photo of the board's back.
+
+C. Touch does nothing, or lands in the wrong place
+   - Settings > Touch calibration, and tap each corner marker exactly (a stylus or fingernail tip helps).
+   - Cannot reach Settings? Hold the BOOT button while you plug the board in: it goes straight to calibration.
+     On Home you can also press and hold an empty spot for 3 seconds.
+   - Changing the orientation always asks for a new calibration. That is normal.
+
+D. It says WAITING FOR A GPS FIX (or WAITING FOR MORE SATELLITES) and never starts scanning
+   A run scans only while the GPS has a fix with at least 4 satellites (5 on foot).
+   - Go outdoors or put the module where it can see the sky. The first fix after power-up can take several minutes.
+   - Open GPS from Home. SATELLITES should climb and FIX should change from SEARCH to LOCKED or 3D LOCK.
+   - SATELLITES stays at 0 and FIX stays on SEARCH for a long time: check the wiring and Settings > GPS pins. The board
+     reads the module's TX on the RX pin (IO4 by default). Try the presets (4 / 5, 4 / -1, 3 / -1, 8 / 9), tap SAVE
+     (the board restarts) and look again. Use TX -1 for a module that only sends NMEA.
+   - The module must send NMEA at 9600 baud.
+   - In Pro mode, a strict GPS accuracy setting (HDOP 2, 6 sats) can hold back a run: set it to Off.
+
+E. It finds few or no networks
+   - Check the GPS first (D): no fix, no scanning.
+   - CAR and MOTO skip the slow 5 GHz radar (DFS) channels on two sweeps out of three. WALK/BIKE scans everything
+     every sweep. Pick the ride that matches how fast you are moving.
+   - In Pro mode, check Wi-Fi scan / BLE scan are On, Channels is All, Skip open APs is No, and the RSSI windows are
+     wide (-95 to -35 or so). Pro mode also uses its own sweep interval (8 s by default), which is slower than CAR.
+   - 5 GHz channels 149-165 are scanned with the US country setting (the default). Elsewhere, build with your own
+     country code (SKIRF_WIFI_COUNTRY).
+
+F. Logs are not saved to the microSD card
+   - Settings shows "SD card" or "Flash" next to Logs: Flash means the card was not found.
+   - Fit the card BEFORE switching the board on. Use FAT32 (cards over 32 GB are often exFAT, which the board cannot
+     read). Try another card.
+   - With no card the board logs to its own flash (about 1.5 MB). The web portal and the Logs screen show those files
+     too.
+
+G. I cannot reach the web portal
+   - The hotspot is only up for 60 seconds: at start-up, or after Settings > Web portal. The timer is on the screen.
+   - Join the Wi-Fi called SKIrf_WARDRIVER (no password), then open http://192.168.4.1 (not https).
+   - Some phones leave networks without internet: turn off "auto-switch to mobile data" or "Wi-Fi assist" while
+     connected, or use a laptop.
+   - While the board is connected to your home Wi-Fi, the same page is also on your home network at the address the
+     board shows (Settings > Wi-Fi).
+
+H. Upload to WiGLE or WDGWars fails
+   - "No internet WiFi / Set home WiFi first": save your home network (Settings > Wi-Fi > NETWORKS, or the portal).
+     The board must be in range of it.
+   - "No API key": save your WDGWars API key in the web portal (WDGWARS API KEY).
+   - WiGLE needs the API Name and API Token from your WiGLE account page, not your login password.
+   - Uploads are skipped while a run is recording. Stop the run first.
+   - Big files take a while. Keep the board powered and in range until it says "Upload done".
+
+I. No sound
+   The board has no speaker. Fit a PASSIVE buzzer or piezo: + to IO26, - to GND. An active buzzer plays one fixed
+   pitch.
+
+J. Reset everything
+   Flash the .bin again (help/2_FLASHING.txt): this resets the settings saved in the board. Files on the microSD card
+   are not touched; delete them from the Logs screen or the web portal if you want a clean card.
+
+Still stuck? Open an issue (Bug report form) with the release from the boot screen and the Serial Monitor output.

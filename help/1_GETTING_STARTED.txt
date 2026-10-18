@@ -1,0 +1,49 @@
+1. GETTING STARTED
+==================
+
+What the board is
+-----------------
+The NM-CYD-C5 is a small board with an ESP32-C5 chip, a 2.8 inch resistive touch screen (240 x 320), a microSD
+card slot and USB-C ports. The ESP32-C5 has Wi-Fi on both 2.4 GHz and 5 GHz and Bluetooth LE. SKIrf Wardriver is
+the software that runs on it.
+
+Parts to add
+------------
+  GPS          Needed for logging. A module such as the ATGM336H (or any NMEA module at 9600 baud). By default the
+               board reads the module's TX on IO4 and sends set-up commands on IO5. If yours is wired to other pins,
+               change them in Settings > GPS pins. The board asks the module for position updates 5 times a second.
+  microSD      Recommended. FAT32, 32 GB or smaller is safest. Fit it BEFORE you switch the board on.
+               Logs, and your saved Wi-Fi and API keys, are kept on the card. With no card they go to the board's
+               own flash (about 1.5 MB, enough for short runs).
+  Buzzer       Optional. A small PASSIVE buzzer or piezo: + to IO26, - to GND. Without it the board is silent.
+  Phone/laptop Optional. Used for the web portal: download logs, save your Wi-Fi and API keys.
+
+Step by step
+------------
+ 1. Put the software on the board: help/2_FLASHING.txt.
+ 2. The first start asks you to calibrate touch: TOUCH CAL, "Tap the four corners". Tap the marker that appears
+    in each corner in turn (a stylus or fingernail tip works best). The board says "Cal saved" and restarts.
+ 3. The boot screen shows the SKIrf logo with BETA 1 under it.
+ 4. Next comes the WEB PORTAL screen for 60 seconds (see "The web portal" below). Tap SKIP if you do not need it.
+ 5. You land on HOME: a radar, the START WARDRIVE button, and GPS, LOGS and SETTINGS.
+ 6. Open GPS and wait until FIX says LOCKED or 3D LOCK (outdoors, clear sky; the first fix can take a few minutes).
+ 7. Tap START WARDRIVE, pick your ride (CAR, MOTO or WALK/BIKE). The wardrive screen opens; tap START.
+    The big number is how many unique networks and devices you have caught this run.
+ 8. To finish, tap STOP: it turns amber and says TAP TO STOP. Tap it again within 3 seconds. The RUN REPORT appears.
+
+The web portal
+--------------
+For 60 seconds after each start the board makes its own open Wi-Fi hotspot called SKIrf_WARDRIVER. Join it with a
+phone or laptop and open http://192.168.4.1 (not https). From there you can download or delete logs, upload them,
+save your home Wi-Fi, and save your WiGLE API name and token and your WDGWars API key. "Return to device" closes it.
+Open it again any time from Settings > Web portal.
+
+Uploading your runs
+-------------------
+ 1. Save your home Wi-Fi (Settings > Wi-Fi > NETWORKS, or in the web portal) and your API keys (web portal).
+ 2. Open LOGS, tap the runs to select them (or ALL), then tap WIGLE or WDGW. The board joins your home Wi-Fi and
+    uploads each file.
+
+Next
+----
+The user guide (PDF in the docs folder) explains every screen. If something does not work: help/3_TROUBLESHOOTING.txt.

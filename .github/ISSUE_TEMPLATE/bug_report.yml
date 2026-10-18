@@ -1,0 +1,56 @@
+name: Bug report
+description: Something does not work as the guide says
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing. Please fill in as much as you can.
+  - type: input
+    id: release
+    attributes:
+      label: Release
+      description: Shown in small text under the logo on the boot screen.
+      placeholder: Beta 1
+    validations:
+      required: true
+  - type: dropdown
+    id: how
+    attributes:
+      label: How did you install it?
+      options:
+        - Flashed the release .bin with esptool
+        - Built from source
+    validations:
+      required: true
+  - type: dropdown
+    id: ride
+    attributes:
+      label: Ride profile in use (if it is about a run)
+      options:
+        - Not about a run
+        - Car
+        - Motorcycle
+        - Walk / Bike
+        - Pro mode
+  - type: input
+    id: gear
+    attributes:
+      label: GPS module, microSD card size, anything else fitted
+      placeholder: ATGM336H on 4 / 5, 32 GB SD card, passive buzzer
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+  - type: textarea
+    id: serial
+    attributes:
+      label: Serial Monitor output (115200 baud)
+      description: Include the "Transport ..." and "Wardrive started / stopped" lines for capture problems. Please remove your Wi-Fi password or API keys if they appear.
+      render: text
