@@ -61,7 +61,7 @@ Not sure where to start? Read [READ_ME_FIRST.txt](READ_ME_FIRST.txt) and the [he
 
 ### Web Flasher
 
-- Use the [web flasher](https://skirf-labs.tech/) to flash your device.
+- Flash it with `esptool` or with the project's [web flasher](https://skirf-labs.tech/wardriver_flasher/index.html)
 
 ### Flash the firmware file
 
