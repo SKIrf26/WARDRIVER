@@ -59,6 +59,10 @@ It is passive: it only receives the beacons and adverts that devices broadcast o
 
 Not sure where to start? Read [READ_ME_FIRST.txt](READ_ME_FIRST.txt) and the [help folder](help/).
 
+### Web Flasher
+
+- Use the [web flasher](https://skirf-labs.tech/) to flash your device.
+
 ### Flash the firmware file
 
 1. Download `SKIrf_WARDRIVER_C5_CYD_Beta_1.bin` and `SHA256SUMS.txt` from the [Releases page](https://github.com/SKIrf26/WARDRIVER/releases).
