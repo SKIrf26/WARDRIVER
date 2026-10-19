@@ -56,7 +56,8 @@
 
 #include "SKIrf_Sprites.h"
 #include "SKIrf_Icons.h"
-#include "SKIrf_Fonts.h"   // Saira Semi Condensed smooth fonts (SIL OFL 1.1)
+#include "SKIrf_Fonts.h"
+#include "SKIrf_Web.h"     // web portal page, fonts and logo (tools/web/make_web_assets.py)   // Saira Semi Condensed smooth fonts (SIL OFL 1.1)
 
 // ---------------- USER CONFIG ----------------
 #define SKIRF_VERSION      "Beta 1"          // shown on the boot screen
@@ -5448,10 +5449,15 @@ void handleDownloadAll() {
     return;
   }
 
-  // Collect CSV filenames
+  // Collect CSV filenames: the ones asked for (?f=a.csv&f=b.csv), or all of them
   String names[40];
   int nFiles = 0;
-  File root = logFs().open("/");
+  for (int i = 0; i < server.args() && nFiles < 40; i++) {
+    if (server.argName(i) != "f") continue;
+    String nm = server.arg(i);
+    if (safeCsvPath(nm) && logFs().exists("/" + nm)) names[nFiles++] = nm;
+  }
+  File root = nFiles ? File() : logFs().open("/");
   if (root) {
     File f = root.openNextFile();
     while (f && nFiles < 40) {
@@ -5692,96 +5698,7 @@ int uploadOneCsvToWdg(const String& path) {
   return 0;
 }
 
-String uploadAllCsvToWdg() {
-  if (wdgApiKey.length() < 8)
-    return "FAIL: No API key saved. Enter and SAVE KEY first.";
-  if (WiFi.status() != WL_CONNECTED)
-    return "FAIL: Not connected to home WiFi (need internet). Status=" + String((int)WiFi.status());
 
-  String names[40];
-  int n = 0;
-  File root = logFs().open("/");
-  if (!root) return "FAIL: SD card error";
-  File f = root.openNextFile();
-  while (f && n < 40) {
-    if (!f.isDirectory()) {
-      String name = f.name();
-      if (name.startsWith("/")) name = name.substring(1);
-      String lower = name; lower.toLowerCase();
-      if (lower.endsWith(".csv")) names[n++] = name;
-    }
-    f = root.openNextFile();
-  }
-  root.close();
-
-  if (n == 0) return "FAIL: No CSV files on SD card.";
-
-  int ok = 0, skip = 0, fail = 0;
-  String details = "";
-  for (int i = 0; i < n; i++) {
-    Serial.printf("Uploading %d/%d: %s\n", i + 1, n, names[i].c_str());
-    int r = uploadOneCsvToWdg("/" + names[i]);
-    if (r == 1) {
-      ok++;
-      details += "<br>OK: " + names[i];
-    } else if (r == 2) {
-      skip++;
-      details += "<br>SKIP (already uploaded): " + names[i];
-    } else {
-      fail++;
-      details += "<br>FAIL: " + names[i] + " — " + lastWdgError;
-    }
-  }
-
-  String summary = "Done: " + String(ok) + " new, " + String(skip) + " already on server, " +
-                   String(fail) + " failed (of " + String(n) + ").";
-  summary += details;
-  return summary;
-}
-
-void handleWdgPage() {
-  String html;
-  html += F("<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>");
-  html += F("<title>WDGWars</title><style>");
-  html += F("body{background:#000;color:#0f0;font-family:monospace;margin:16px}");
-  html += F("input,button{width:95%;padding:12px;margin:8px 0;font-size:15px;border-radius:8px;border:1px solid #0f0;background:#111;color:#fff}");
-  html += F("button{background:#0220;color:#0f0} a{color:#0ff}");
-  html += F(".ok{color:#0f0}.warn{color:#fd0}.info{color:#0ff}");
-  html += F("#spin{display:none;color:#fd0;margin:12px 0}</style></head><body>");
-  html += F("<h2>WDGWars Upload</h2>");
-
-  if (wdgApiKey.length() >= 8) {
-    html += F("<p class='ok'>API key saved (");
-    html += String(wdgApiKey.length());
-    html += F(" chars)</p>");
-  } else {
-    html += F("<p class='warn'>No API key saved yet</p>");
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    html += F("<p class='info'>WiFi: connected — ");
-    html += WiFi.localIP().toString();
-    html += F("</p>");
-  } else {
-    html += F("<p class='warn'>WiFi: NOT connected — uploads need home WiFi + internet</p>");
-  }
-
-  html += F("<p style='color:#888'>Paste API key from your wdgwars.pl profile, save, then upload.</p>");
-  html += F("<form method='POST' action='/wdg-save'>");
-  html += F("<label>API Key</label><br>");
-  html += secretInput("key", wdgApiKey.length() > 0, false);
-  html += F("<br><button type='submit'>SAVE KEY</button></form>");
-
-  html += F("<form method='POST' action='/wdg-upload' onsubmit=\"document.getElementById('spin').style.display='block';this.querySelector('button').disabled=true;this.querySelector('button').innerText='UPLOADING...';return true;\">");
-  html += F("<button type='submit'>UPLOAD ALL CSV TO WDGWARS</button></form>");
-  html += F("<div id='spin' style='display:none;margin:16px 0;padding:12px;border:1px solid #0f0;border-radius:8px'>");
-  html += F("<p style='color:#fd0'>Uploading to WDGWars…</p>");
-  html += F("<p style='color:#888'>Progress depends on file size and network. Keep this page open.</p>");
-  html += F("<div style='height:14px;background:#222;border-radius:7px;overflow:hidden'><div style='height:100%;width:40%;background:#0f0;animation:pulse 1.2s infinite alternate'></div></div>");
-  html += F("<style>@keyframes pulse{from{width:15%}to{width:90%}}</style></div>");
-  html += F("<p><a href='/'>Back to files</a></p></body></html>");
-  server.send(200, "text/html", html);
-}
 
 // Web portal: escape text placed inside an HTML attribute or element.
 String htmlEsc(const String &s) {
@@ -5805,41 +5722,7 @@ String secretInput(const char* name, bool saved, bool password) {
   return h;
 }
 
-void handleWdgSave() {
-  String msg;
-  if (server.hasArg("key") && server.arg("key").length()) {
-    wdgApiKey = server.arg("key");
-    wdgApiKey.trim();
-    saveHomeWifi();
-    msg = "API key saved (" + String(wdgApiKey.length()) + " characters).";
-    Serial.println(msg);
-  } else {
-    msg = "No key received.";
-  }
 
-  String html = F("<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>");
-  html += F("<title>Key Saved</title><style>body{background:#000;color:#0f0;font-family:monospace;text-align:center;margin-top:40px} a{color:#0ff}</style></head><body>");
-  html += F("<h2>Saved</h2><p>");
-  html += msg;
-  html += F("</p><p><a href='/wdg'>Back to WDGWars</a></p></body></html>");
-  server.send(200, "text/html", html);
-}
-
-void handleWdgUpload() {
-  String result = uploadAllCsvToWdg();
-  String html = F("<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>");
-  html += F("<title>Upload Result</title><style>");
-  html += F("body{background:#000;color:#0f0;font-family:monospace;margin:16px;text-align:left;line-height:1.5}");
-  html += F("a{color:#0ff} h2{text-align:center;color:#fff}");
-  html += F(".box{border:1px solid #0f0;border-radius:10px;padding:14px;margin:12px 0;background:#0a0a0a}</style></head><body>");
-  html += F("<h2>WDGWars Result</h2>");
-  html += F("<div class='box'><p>");
-  html += result;
-  html += F("</p></div>");
-  html += F("<p style='color:#888;text-align:center'>Results stay on this page — review OK / Skip / Fail, then go back.</p>");
-  html += F("<p style='text-align:center'><a href='/wdg'>Back to WDGWars</a> · <a href='/'>Files</a></p></body></html>");
-  server.send(200, "text/html", html);
-}
 
 
 // ---------- Wigle CSV upload ----------
@@ -5987,136 +5870,10 @@ void doWigleUploadFromDevice() {
 }
 
 // ---------- Web portal pages (WiGLE, home Wi-Fi, file list, downloads) ----------
-void handleWiglePage() {
-  String html;
-  html += F("<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>");
-  html += F("<title>Wigle</title><style>");
-  html += F("body{background:#000;color:#0f0;font-family:monospace;margin:16px}");
-  html += F("input,button{width:95%;padding:12px;margin:8px 0;font-size:15px;border-radius:8px;border:1px solid #0f0;background:#111;color:#fff}");
-  html += F("button{background:#0220;color:#0f0} a{color:#0ff} .ok{color:#0f0} .warn{color:#fd0}</style></head><body>");
-  html += F("<h2>Wigle Upload</h2>");
-  html += F("<p style='color:#888'>Get API Name + Token from wigle.net/account (not your login password).</p>");
-  if (wigleApiName.length() > 0 && wigleApiToken.length() > 0) html += F("<p class='ok'>Credentials saved</p>");
-  else html += F("<p class='warn'>No Wigle credentials saved</p>");
-  html += F("<form method='POST' action='/wigle-save'>");
-  html += F("<label>API Name</label><br><input name='name' autocomplete='off' value='");
-  html += htmlEsc(wigleApiName);
-  html += F("'><br><label>API Token</label><br>");
-  html += secretInput("token", wigleApiToken.length() > 0, true);
-  html += F("<br><button type='submit'>SAVE CREDENTIALS</button></form>");
-  html += F("<form method='POST' action='/wigle-upload' onsubmit=\"document.getElementById('spin').style.display='block';this.querySelector('button').disabled=true;this.querySelector('button').innerText='UPLOADING...';return true;\">");
-  html += F("<button type='submit'>UPLOAD ALL CSV TO WIGLE</button></form>");
-  html += F("<div id='spin' style='display:none;margin:16px 0;padding:12px;border:1px solid #0af;border-radius:8px'>");
-  html += F("<p style='color:#fd0'>Uploading to Wigle… keep this page open.</p>");
-  html += F("<div style='height:14px;background:#222;border-radius:7px;overflow:hidden'><div style='height:100%;width:40%;background:#0af;animation:pulse 1.2s infinite alternate'></div></div>");
-  html += F("<style>@keyframes pulse{from{width:15%}to{width:90%}}</style></div>");
-  html += F("<p><a href='/'>Back to files</a></p></body></html>");
-  server.send(200, "text/html", html);
-}
 
-void handleWigleSave() {
-  if (server.hasArg("name")) wigleApiName = server.arg("name");
-  if (server.hasArg("token") && server.arg("token").length()) wigleApiToken = server.arg("token");
-  wigleApiName.trim(); wigleApiToken.trim();
-  saveHomeWifi();
-  String html = F("<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>");
-  html += F("<title>Saved</title><style>body{background:#000;color:#0f0;font-family:monospace;text-align:center;margin-top:40px}a{color:#0ff}</style></head><body>");
-  html += F("<h2>Saved</h2><p>Wigle API name + token stored on SD.</p>");
-  html += F("<p><a href='/wigle'>Back</a></p></body></html>");
-  server.send(200, "text/html", html);
-}
 
-void handleWigleUpload() {
-  String result;
-  if (wigleApiName.length() < 1 || wigleApiToken.length() < 4)
-    result = "FAIL: Save Wigle API name and token first.";
-  else if (WiFi.status() != WL_CONNECTED)
-    result = "FAIL: Need home WiFi with internet.";
-  else {
-    String names[40]; int n = 0;
-    File root = logFs().open("/");
-    if (root) {
-      File f = root.openNextFile();
-      while (f && n < 40) {
-        if (!f.isDirectory()) {
-          String name = f.name();
-          if (name.startsWith("/")) name = name.substring(1);
-          String lower = name; lower.toLowerCase();
-          if (lower.endsWith(".csv")) names[n++] = name;
-        }
-        f = root.openNextFile();
-      }
-      root.close();
-    }
-    if (n == 0) result = "FAIL: No CSV files.";
-    else {
-      int ok = 0, fail = 0; String details;
-      for (int i = 0; i < n; i++) {
-        if (uploadOneCsvToWigle("/" + names[i]) == 1) { ok++; details += "<br>OK: " + names[i]; }
-        else { fail++; details += "<br>FAIL: " + names[i] + " — " + lastWigleError; }
-      }
-      result = "Done: " + String(ok) + " ok, " + String(fail) + " failed." + details;
-    }
-  }
-  String html = F("<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>");
-  html += F("<title>Wigle Result</title><style>");
-  html += F("body{background:#000;color:#0f0;font-family:monospace;margin:16px;line-height:1.5}");
-  html += F("a{color:#0ff} h2{text-align:center;color:#fff}");
-  html += F(".box{border:1px solid #0af;border-radius:10px;padding:14px;margin:12px 0;background:#0a0a0a}</style></head><body>");
-  html += F("<h2>Wigle Result</h2><div class='box'><p>");
-  html += result;
-  html += F("</p></div>");
-  html += F("<p style='color:#888;text-align:center'>Results stay here so you can check failures before leaving.</p>");
-  html += F("<p style='text-align:center'><a href='/wigle'>Back to Wigle</a> · <a href='/'>Files</a></p></body></html>");
-  server.send(200, "text/html", html);
-}
 
-void handleWifiConfig() {
-  String html;
-  html += F("<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>");
-  html += F("<title>Home WiFi</title><style>");
-  html += F("body{background:#000;color:#0f0;font-family:monospace;margin:16px}");
-  html += F("input,button{width:95%;padding:12px;margin:8px 0;font-size:16px;border-radius:8px;border:1px solid #0f0;background:#111;color:#fff}");
-  html += F("button{background:#0220;color:#0f0}");
-  html += F("a{color:#0ff}</style></head><body>");
-  html += F("<h2>Home WiFi Setup</h2>");
-  html += F("<p style='color:#888'>When this network is in range, the wardriver will auto-connect so you can reach it on your LAN.</p>");
-  html += F("<form method='POST' action='/wifi-save'>");
-  html += F("<label>SSID</label><br><input name='ssid' value='");
-  html += htmlEsc(homeSSID);
-  html += F("'><br><label>Password</label><br>");
-  html += secretInput("pass", homePass.length() > 0, true);
-  html += F("<br><button type='submit'>SAVE & CONNECT</button></form>");
-  html += F("<p><a href='/'>Back to files</a></p></body></html>");
-  server.send(200, "text/html", html);
-}
 
-void handleWifiSave() {
-  String oldSSID = homeSSID;
-  if (server.hasArg("ssid")) homeSSID = server.arg("ssid");
-  homeSSID.trim();
-  // Blank password keeps the saved one for the same network; a new network
-  // with a blank password is treated as an open network.
-  if (server.hasArg("pass") && server.arg("pass").length()) homePass = server.arg("pass");
-  else if (homeSSID != oldSSID) homePass = "";
-  saveHomeWifi();
-
-  bool ok = tryConnectHomeWifi(15000);
-
-  String html = F("<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>");
-  html += F("<title>Saved</title><style>body{background:#000;color:#0f0;font-family:monospace;text-align:center;margin-top:40px}</style></head><body>");
-  if (ok) {
-    html += F("<h2>Connected!</h2><p>IP: ");
-    html += homeWifiIP;
-    html += F("</p><p>Open http://");
-    html += homeWifiIP;
-    html += F("/ on your home network.</p>");
-  } else {
-    html += F("<h2>Saved</h2><p>Could not connect right now (out of range or wrong password). Credentials stored — will retry when network is seen.</p>");
-  }
-  html += F("<p><a href='/' style='color:#0ff'>Back</a></p></body></html>");
-  server.send(200, "text/html", html);
-}
 
 
 bool isCsvName(const String& name) {
@@ -6135,208 +5892,8 @@ bool safeCsvPath(String& name) {
   return true;
 }
 
-void handleRoot() {
-  if (!openLogFS()) {
-    server.send(500, "text/plain", "SD card error");
-    return;
-  }
-
-  String html;
-  html.reserve(4096);
-  html += F("<!DOCTYPE html><html><head>");
-  html += F("<meta name='viewport' content='width=device-width,initial-scale=1'>");
-  html += F("<title>SKIrf WARDRIVER</title>");
-  html += F("<style>");
-  html += F("body{background:#000;color:#0f0;font-family:monospace;margin:16px}");
-  html += F("h1{color:#fff;text-align:center;letter-spacing:1px}");
-  html += F("table{width:100%;border-collapse:collapse;margin-top:16px}");
-  html += F("th,td{border-bottom:1px solid #033;padding:10px 6px;text-align:left}");
-  html += F("th{color:#0ff}");
-  html += F("a.dl{color:#0ff;text-decoration:none;margin-right:12px}");
-  html += F("a.del{color:#f55;text-decoration:none}");
-  html += F(".meta{color:#666;font-size:12px;text-align:center;margin-top:20px}");
-  html += F(".empty{color:#888;text-align:center;margin-top:30px}");
-  html += F("</style></head><body>");
-  html += F("<h1>SKIrf WARDRIVER</h1>");
-  html += F("<p style='text-align:center;color:#888'>Wardrive CSV logs — select files to upload</p>");
-  html += F("<form id='sel' method='POST'>");
-  html += F("<table><tr><th><input type='checkbox' id='all' onclick=\"document.querySelectorAll('input.f').forEach(c=>c.checked=this.checked)\"></th>");
-  html += F("<th>File</th><th>Size</th><th>Actions</th></tr>");
-
-  File root = logFs().open("/");
-  int count = 0;
-  if (root) {
-    File f = root.openNextFile();
-    while (f) {
-      if (!f.isDirectory()) {
-        String name = f.name();
-        if (name.startsWith("/")) name = name.substring(1);
-        if (!isCsvName(name)) {
-          f = root.openNextFile();
-          continue;
-        }
-        size_t sz = f.size();
-        String enc = urlEncode(name);
-
-        html += "<tr><td><input class='f' type='checkbox' name='f' value='";
-        html += name;
-        html += "'></td><td>";
-        html += name;
-        html += "</td><td>";
-        if (sz < 1024) { html += String(sz); html += " B"; }
-        else { html += String(sz / 1024.0, 1); html += " KB"; }
-        html += "</td><td>";
-        html += "<a class='dl' href='/download?file=";
-        html += enc;
-        html += "'>Download</a>";
-        html += "<a class='del' href='/delete?file=";
-        html += enc;
-        html += "' onclick=\"return confirm('Delete ";
-        html += name;
-        html += "?');\">Delete</a>";
-        html += "</td></tr>";
-        count++;
-      }
-      f = root.openNextFile();
-    }
-    root.close();
-  }
-
-  html += F("</table>");
-  if (count == 0) {
-    html += F("<p class='empty'>No .csv wardrive logs found</p>");
-  }
-
-  // Selected-file upload actions
-  html += F("<div style='text-align:center;margin-top:18px'>");
-  html += F("<p style='color:#888;margin:8px 0'>Selected files:</p>");
-  html += F("<button type='submit' formaction='/upload-selected' name='target' value='wigle' onclick=\"this.innerText='UPLOADING WIGLE...';this.disabled=0;\"");
-  html += F(" style='padding:12px 16px;margin:5px;border:2px solid #0af;border-radius:10px;background:#0220;color:#fff;font-size:14px'>");
-  html += F("UPLOAD SELECTED → WIGLE</button>");
-  html += F("<button type='submit' formaction='/upload-selected' name='target' value='wdg' onclick=\"this.innerText='UPLOADING WDG...';\"");
-  html += F(" style='padding:12px 16px;margin:5px;border:2px solid #f0f;border-radius:10px;background:#0220;color:#fff;font-size:14px'>");
-  html += F("UPLOAD SELECTED → WDGWARS</button>");
-  html += F("<button type='submit' formaction='/upload-selected' name='target' value='all' onclick=\"this.innerText='UPLOADING ALL...';\"");
-  html += F(" style='padding:12px 16px;margin:5px;border:2px solid #0f0;border-radius:10px;background:#0220;color:#fff;font-size:14px'>");
-  html += F("UPLOAD SELECTED → ALL LOGGED-IN</button>");
-  html += F("<br>");
-  html += F("<button type='submit' formaction='/delete-selected' onclick=\"return confirm('Delete selected CSV files?');\"");
-  html += F(" style='padding:12px 16px;margin:5px;border:2px solid #f55;border-radius:10px;background:#200;color:#f88;font-size:14px'>");
-  html += F("DELETE SELECTED CSV</button>");
-  html += F("</div></form>");
-
-  html += F("<div style='text-align:center;margin-top:16px'>");
-  html += F("<a href='/downloadall' style='display:inline-block;padding:12px 22px;margin:6px;border:2px solid #0ff;");
-  html += F("border-radius:10px;color:#fff;text-decoration:none;background:#0220;font-size:15px'>");
-  html += F("DOWNLOAD ALL .CSV (.ZIP)</a></div>");
-  html += F("<div style='text-align:center;margin-top:10px'>");
-  html += F("<a href='/delete-all-csv' onclick=\"return confirm('Delete ALL CSV wardrive logs on the SD card? This cannot be undone.');\"");
-  html += F(" style='display:inline-block;padding:12px 22px;margin:6px;border:2px solid #f55;");
-  html += F("border-radius:10px;color:#f88;text-decoration:none;background:#200;font-size:15px'>");
-  html += F("DELETE ALL CSV</a></div>");
-  html += F("<div style='text-align:center;margin-top:10px'>");
-  html += F("<a href='/wifi' style='display:inline-block;padding:12px 22px;margin:6px;border:2px solid #fd0;");
-  html += F("border-radius:10px;color:#fff;text-decoration:none;background:#0220;font-size:15px'>");
-  html += F("HOME WIFI SETUP</a></div>");
-  html += F("<div style='text-align:center;margin-top:10px'>");
-  html += F("<a href='/wigle' style='display:inline-block;padding:12px 16px;margin:5px;border:2px solid #0af;");
-  html += F("border-radius:10px;color:#fff;text-decoration:none;background:#0220;font-size:14px'>WIGLE API KEY</a>");
-  html += F("<a href='/wdg' style='display:inline-block;padding:12px 16px;margin:5px;border:2px solid #f0f;");
-  html += F("border-radius:10px;color:#fff;text-decoration:none;background:#0220;font-size:14px'>WDGWARS API KEY</a></div>");
-  if (homeWifiConnected) {
-    html += F("<p style='text-align:center;color:#0f0'>LAN: http://");
-    html += homeWifiIP;
-    html += F("/</p>");
-  }
-  html += F("<div style='text-align:center;margin-top:12px'>");
-  html += F("<a href='/return' style='display:inline-block;padding:14px 28px;border:2px solid #0f0;");
-  html += F("border-radius:10px;color:#fff;text-decoration:none;background:#0220;font-size:16px'>");
-  html += F("RETURN TO WARDRIVER</a></div>");
-  html += F("<p class='meta'>AP stays open while you are connected &middot; 192.168.4.1</p>");
-  html += F("<p class='meta'>Uploads need Home WiFi with internet (set above)</p>");
-  html += F("</body></html>");
-
-  server.send(200, "text/html", html);
-}
 
 
-void handleUploadSelected() {
-  String target = server.hasArg("target") ? server.arg("target") : "";
-  target.toLowerCase();
-
-  // Collect selected filenames (checkboxes name="f")
-  String files[40];
-  int n = 0;
-  for (int i = 0; i < server.args() && n < 40; i++) {
-    if (server.argName(i) == "f") {
-      String nm = server.arg(i);
-      if (safeCsvPath(nm)) files[n++] = nm;
-    }
-  }
-
-  String result;
-  if (n == 0) {
-    result = "No files selected. Go back and check one or more CSVs.";
-  } else if (target != "wigle" && target != "wdg" && target != "all") {
-    result = "Unknown target.";
-  } else {
-    // Need internet — try home WiFi (AP_STA keeps portal up)
-    if (WiFi.status() != WL_CONNECTED) {
-      if (homeSSID.length() == 0 || !tryConnectHomeWifi(15000)) {
-        result = "FAIL: Need home WiFi with internet for uploads. Configure HOME WIFI SETUP first.";
-      }
-    }
-
-    if (result.length() == 0 && WiFi.status() == WL_CONNECTED) {
-      bool doWigle = (target == "wigle" || target == "all");
-      bool doWdg   = (target == "wdg"   || target == "all");
-
-      if (doWigle && (wigleApiName.length() < 1 || wigleApiToken.length() < 4)) {
-        result += "Wigle: no API credentials saved.<br>";
-        doWigle = false;
-      }
-      if (doWdg && wdgApiKey.length() < 8) {
-        result += "WDGWars: no API key saved.<br>";
-        doWdg = false;
-      }
-      if (!doWigle && !doWdg && target == "all") {
-        result += "Not logged in to Wigle or WDGWars. Save API keys first.";
-      } else if (!doWigle && target == "wigle") {
-        result += "Save Wigle API name + token first.";
-      } else if (!doWdg && target == "wdg") {
-        result += "Save WDGWars API key first.";
-      } else {
-        for (int i = 0; i < n; i++) {
-          String path = "/" + files[i];
-          result += "<b>" + files[i] + "</b><br>";
-          if (doWigle) {
-            int r = uploadOneCsvToWigle(path);
-            result += r == 1 ? "&nbsp;&nbsp;Wigle: OK<br>" : ("&nbsp;&nbsp;Wigle: FAIL — " + lastWigleError + "<br>");
-          }
-          if (doWdg) {
-            int r = uploadOneCsvToWdg(path);
-            if (r == 1) result += "&nbsp;&nbsp;WDGWars: OK<br>";
-            else if (r == 2) result += "&nbsp;&nbsp;WDGWars: SKIP (already on server)<br>";
-            else result += "&nbsp;&nbsp;WDGWars: FAIL — " + lastWdgError + "<br>";
-          }
-          result += "<br>";
-        }
-      }
-    }
-  }
-
-  String html = F("<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>");
-  html += F("<title>Upload Result</title><style>");
-  html += F("body{background:#000;color:#0f0;font-family:monospace;margin:16px;line-height:1.5}");
-  html += F("a{color:#0ff} h2{color:#fff;text-align:center}");
-  html += F(".box{border:1px solid #0f0;border-radius:10px;padding:14px;background:#0a0a0a}</style></head><body>");
-  html += F("<h2>Upload Result</h2><div class='box'><p>");
-  html += result;
-  html += F("</p></div>");
-  html += F("<p style='text-align:center;color:#888'>Page stays open so you can review results.</p>");
-  html += F("<p style='text-align:center'><a href='/'>Back to files</a></p></body></html>");
-  server.send(200, "text/html", html);
-}
 
 void handleDownload() {
   if (!server.hasArg("file")) {
@@ -6370,61 +5927,7 @@ void handleDownload() {
 }
 
 
-void handleDeleteSelected() {
-  int deleted = 0;
-  for (int i = 0; i < server.args(); i++) {
-    if (server.argName(i) != "f") continue;
-    String nm = server.arg(i);
-    if (!safeCsvPath(nm)) continue;
-    String path = "/" + nm;
-    if (logFs().exists(path)) {
-      logFs().remove(path);
-      deleted++;
-      Serial.println("Deleted CSV: " + path);
-    }
-  }
-  String html = F("<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>");
-  html += F("<title>Deleted</title><style>body{background:#000;color:#0f0;font-family:monospace;text-align:center;margin-top:40px}a{color:#0ff}</style></head><body>");
-  html += F("<h2>Deleted selected</h2><p>");
-  html += String(deleted);
-  html += F(" CSV file(s) removed.</p>");
-  html += F("<p><a href='/'>Back to files</a></p></body></html>");
-  server.send(200, "text/html", html);
-}
 
-void handleDeleteAllCsv() {
-  int deleted = 0;
-  File root = logFs().open("/");
-  if (root) {
-    File f = root.openNextFile();
-    while (f) {
-      if (!f.isDirectory()) {
-        String name = f.name();
-        if (name.startsWith("/")) name = name.substring(1);
-        if (isCsvName(name)) {
-          String path = "/" + name;
-          f.close();
-          if (logFs().remove(path)) {
-            deleted++;
-            Serial.println("Deleted CSV: " + path);
-          }
-          f = root.openNextFile();
-          continue;
-        }
-      }
-      f = root.openNextFile();
-    }
-    root.close();
-  }
-  String html = F("<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>");
-  html += F("<title>Deleted</title><style>body{background:#000;color:#0f0;font-family:monospace;text-align:center;margin-top:40px}a{color:#0ff}</style></head><body>");
-  html += F("<h2>Delete all CSV</h2><p>");
-  html += String(deleted);
-  html += F(" CSV file(s) removed.</p>");
-  html += F("<p style='color:#888'>Config files (WiFi keys, calibration) were not touched.</p>");
-  html += F("<p><a href='/'>Back to files</a></p></body></html>");
-  server.send(200, "text/html", html);
-}
 
 void handleDelete() {
   if (!server.hasArg("file")) {
@@ -6446,16 +5949,243 @@ void handleDelete() {
   server.send(303);
 }
 
+// ---------- Web portal (one page + JSON API; tools/web/portal.html) ----------
+unsigned long portalLastHitMs = 0;          // last request from a browser: keeps the hotspot open while the page is in use
+static inline void portalHit() { portalLastHitMs = millis(); }
+
+// Uploads started from the portal run on the board: the hotspot has to close so the radio
+// can join the home network, which would cut the browser off mid-request.
+bool upJobPending = false;
+unsigned long upJobAt = 0;
+String upJobTarget = "";
+String upJobFiles[40];
+int upJobN = 0;                              // 0 = every log
+String upLastReport = "";                    // JSON object shown on the portal's Upload tab
+
+String jsonStr(const String &s) {
+  String o; o.reserve(s.length() + 2); o += '"';
+  for (size_t i = 0; i < s.length(); i++) {
+    char c = s[i];
+    if (c == '"' || c == '\\') { o += '\\'; o += c; }
+    else if ((uint8_t)c < 0x20) { char b[8]; snprintf(b, sizeof(b), "\\u%04x", c); o += b; }
+    else o += c;
+  }
+  o += '"';
+  return o;
+}
+
+static void webSendBin(const char* type, const uint8_t* data, size_t len, bool gz, bool cache) {
+  portalHit();
+  server.sendHeader("Cache-Control", cache ? "public, max-age=604800" : "no-store");
+  if (gz) server.sendHeader("Content-Encoding", "gzip");
+  server.send_P(200, type, (const char*)data, len);
+}
+
+static void webJson(int code, bool ok, const String &msg) {
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(code, "application/json", String("{\"ok\":") + (ok ? "true" : "false") + ",\"msg\":" + jsonStr(msg) + "}");
+}
+
+static String cssHex(uint16_t c) {
+  uint8_t r, g, b; rgbOf565(c, r, g, b);
+  char s[8]; snprintf(s, sizeof(s), "#%02x%02x%02x", r, g, b);
+  return s;
+}
+
+// The page takes its colours from the theme picked on the board.
+void handleThemeCss() {
+  portalHit();
+  uint8_t r, g, b; rgbOf565(getAccent(), r, g, b);
+  bool lightAcc = (r * 299 + g * 587 + b * 114) / 1000 > 140;
+  String css = ":root{--card:" + cssHex(UI_CARD) + ";--card2:" + cssHex(UI_CARD2) + ";--line:" + cssHex(UI_LINE) +
+               ";--text:" + cssHex(UI_TEXT) + ";--mute:" + cssHex(UI_MUTE) + ";--dim:" + cssHex(UI_DIM) +
+               ";--acc:" + cssHex(getAccent()) + ";--accText:" + (lightAcc ? "#05070a" : "#ffffff") +
+               ";--w24:" + cssHex(C_W24) + ";--w5:" + cssHex(C_W5) + ";--ble:" + cssHex(C_BLE) +
+               ";--ok:" + cssHex(C_OK) + ";--warn:" + cssHex(C_WARN) + ";--bad:" + cssHex(C_BAD) + ";--new:" + cssHex(C_NEW) + "}";
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "text/css", css);
+}
+
+void handleRoot()    { webSendBin("text/html", WEB_INDEX_GZ, WEB_INDEX_GZ_LEN, true, false); }
+void handleFontM()   { webSendBin("font/woff2", WEB_FONT_M, WEB_FONT_M_LEN, false, true); }
+void handleFontB()   { webSendBin("font/woff2", WEB_FONT_B, WEB_FONT_B_LEN, false, true); }
+void handleLogo()    { webSendBin("image/png", WEB_LOGO, WEB_LOGO_LEN, false, true); }
+void handleFavicon() { webSendBin("image/png", WEB_FAVICON, WEB_FAVICON_LEN, false, true); }
+
+static int listCsv(String* names, int maxN, uint32_t* sizes = nullptr) {
+  int n = 0;
+  File root = logFs().open("/");
+  if (!root) return 0;
+  File f = root.openNextFile();
+  while (f && n < maxN) {
+    if (!f.isDirectory()) {
+      String name = f.name();
+      if (name.startsWith("/")) name = name.substring(1);
+      if (isCsvName(name)) { if (sizes) sizes[n] = f.size(); names[n++] = name; }
+    }
+    f = root.openNextFile();
+  }
+  root.close();
+  return n;
+}
+
+void handleApiStatus() {
+  portalHit();
+  openLogFS();
+  static String names[80]; static uint32_t sizes[80];
+  int n = listCsv(names, 80, sizes);
+  bool sd = !logUseLittleFS && sdReady;
+  uint64_t used = sd ? SD.usedBytes() : LittleFS.usedBytes();
+  uint64_t total = sd ? SD.totalBytes() : LittleFS.totalBytes();
+  String j; j.reserve(400 + n * 60);
+  j += "{\"v\":" + jsonStr(SKIRF_VERSION) + ",\"ap\":" + String(apActive ? "true" : "false");
+  j += ",\"store\":{\"kind\":\"" + String(sd ? "SD" : "flash") + "\",\"used\":" + String((double)used, 0) + ",\"total\":" + String((double)total, 0) + "}";
+  j += ",\"gps\":{\"fix\":" + String(gpsValid ? "true" : "false") + ",\"sats\":" + String(gpsSats) +
+       ",\"lat\":" + String(gpsLat, 6) + ",\"lng\":" + String(gpsLng, 6) + "}";
+  j += ",\"rec\":{\"best\":" + String(recBestSession) + ",\"life\":" + String(recLifetime) + ",\"runs\":" + String(recSessions) + "}";
+  j += ",\"wifi\":{\"ssid\":" + jsonStr(homeSSID) + ",\"pass\":" + String(homePass.length() ? "true" : "false") + "}";
+  j += ",\"wigle\":{\"name\":" + jsonStr(wigleApiName) + ",\"token\":" + String(wigleApiToken.length() ? "true" : "false") + "}";
+  j += ",\"wdg\":{\"key\":" + String(wdgApiKey.length() >= 8 ? "true" : "false") + ",\"user\":" + jsonStr(wdgMeUser) + "}";
+  j += ",\"last\":" + (upLastReport.length() ? upLastReport : String("null"));
+  j += ",\"files\":[";
+  for (int i = 0; i < n; i++) {
+    if (i) j += ',';
+    j += "{\"n\":" + jsonStr(names[i]) + ",\"s\":" + String(sizes[i]) + "}";
+  }
+  j += "]}";
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", j);
+}
+
+void handleApiWifi() {
+  portalHit();
+  String oldSSID = homeSSID;
+  if (server.hasArg("ssid")) { homeSSID = server.arg("ssid"); homeSSID.trim(); }
+  // Blank password keeps the saved one for the same network; a new network with a blank
+  // password is treated as an open network.
+  if (server.hasArg("pass") && server.arg("pass").length()) { homePass = server.arg("pass"); homePass.trim(); }
+  else if (homeSSID != oldSSID) homePass = "";
+  saveHomeWifi();
+  webJson(200, true, homeSSID.length() ? "Home Wi-Fi saved" : "Home Wi-Fi cleared");
+}
+
+void handleApiWigle() {
+  portalHit();
+  if (server.hasArg("name")) { wigleApiName = server.arg("name"); wigleApiName.trim(); }
+  if (server.hasArg("token") && server.arg("token").length()) { wigleApiToken = server.arg("token"); wigleApiToken.trim(); }
+  saveHomeWifi();
+  webJson(200, true, "WiGLE keys saved");
+}
+
+void handleApiWdg() {
+  portalHit();
+  if (!server.hasArg("key") || !server.arg("key").length()) { webJson(400, false, "Paste your API key first"); return; }
+  String k = server.arg("key"); k.trim();
+  if (k.length() < 8) { webJson(400, false, "That key looks too short"); return; }
+  wdgApiKey = k;
+  saveHomeWifi();
+  webJson(200, true, "WDGWars key saved");
+}
+
+void handleApiDelete() {
+  portalHit();
+  int deleted = 0;
+  if (server.hasArg("all")) {
+    static String names[80];
+    int n = listCsv(names, 80);
+    for (int i = 0; i < n; i++) if (logFs().remove("/" + names[i])) deleted++;
+  } else {
+    for (int i = 0; i < server.args(); i++) {
+      if (server.argName(i) != "f") continue;
+      String nm = server.arg(i);
+      if (safeCsvPath(nm) && logFs().remove("/" + nm)) deleted++;
+    }
+  }
+  Serial.printf("Portal: deleted %d log(s)\n", deleted);
+  webJson(200, true, String(deleted) + (deleted == 1 ? " log deleted" : " logs deleted"));
+}
+
+void handleApiUpload() {
+  portalHit();
+  String target = server.arg("target");
+  if (target != "wigle" && target != "wdg" && target != "both") { webJson(400, false, "Pick WiGLE, WDGWars or both"); return; }
+  if (!homeSSID.length()) { webJson(400, false, "Add your home Wi-Fi first"); return; }
+  if (target != "wdg" && (wigleApiName.length() < 1 || wigleApiToken.length() < 4)) { webJson(400, false, "Add your WiGLE API name and token first"); return; }
+  if (target != "wigle" && wdgApiKey.length() < 8) { webJson(400, false, "Add your WDGWars API key first"); return; }
+  if (wardriveActive) { webJson(409, false, "Stop the run on the board first"); return; }
+  upJobN = 0;
+  for (int i = 0; i < server.args() && upJobN < 40; i++) {
+    if (server.argName(i) != "f") continue;
+    String nm = server.arg(i);
+    if (safeCsvPath(nm)) upJobFiles[upJobN++] = nm;
+  }
+  upJobTarget = target;
+  upJobPending = true;
+  upJobAt = millis() + 1500;               // let this reply reach the phone before the hotspot goes
+  webJson(200, true, "Upload starting on the board");
+}
+
+// Runs from loop(): hotspot off, join home Wi-Fi, upload with progress on screen, radio off.
+void runUploadJob() {
+  upJobPending = false;
+  portalCountdownActive = false;
+  bool doWigle = upJobTarget != "wdg", doWdg = upJobTarget != "wigle";
+  if (upJobN == 0) { upJobN = listCsv(upJobFiles, 40); }
+  int n = upJobN;
+  Serial.printf("Portal upload job: %d file(s) to %s\n", n, upJobTarget.c_str());
+  showWdgStatusScreen("Joining Wi-Fi...", homeSSID.c_str(), "Please wait");
+  String items = "", note = "";
+  int ok = 0, bad = 0;
+  if (!tryConnectHomeWifi(20000)) {
+    note = "Could not join \"" + homeSSID + "\". Check the network name and password in Setup.";
+    showWdgStatusScreen("No Wi-Fi", homeSSID.c_str(), "Check the portal's Setup tab");
+    bad = n;
+  } else {
+    for (int i = 0; i < n; i++) {
+      String path = "/" + upJobFiles[i];
+      char l2[32]; snprintf(l2, sizeof(l2), "File %d of %d", i + 1, n);
+      String it = "{\"f\":" + jsonStr(upJobFiles[i]);
+      bool fileOk = true;
+      if (doWigle) {
+        showWdgStatusScreen("WiGLE upload", l2, upJobFiles[i].c_str(), i, n);
+        int r = uploadOneCsvToWigle(path);
+        it += ",\"wigle\":" + jsonStr(r == 1 ? String("OK") : lastWigleError);
+        if (r != 1) fileOk = false;
+      }
+      if (doWdg) {
+        showWdgStatusScreen("WDGWars upload", l2, upJobFiles[i].c_str(), i, n);
+        int r = uploadOneCsvToWdg(path);
+        it += ",\"wdg\":" + jsonStr(r == 1 ? String("OK") : (r == 2 ? String("SKIP") : lastWdgError));
+        if (r != 1 && r != 2) fileOk = false;
+      }
+      it += "}";
+      if (items.length()) items += ",";
+      items += it;
+      if (fileOk) ok++; else bad++;
+    }
+  }
+  char when[24] = "";
+  if (gps.time.isValid() && gps.date.isValid() && gps.date.year() > 2020)
+    snprintf(when, sizeof(when), "%d %s %02d:%02d UTC", gps.date.day(),
+             (const char*[]){"Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"}[(gps.date.month() + 11) % 12],
+             gps.time.hour(), gps.time.minute());
+  upLastReport = "{\"when\":" + jsonStr(when) + ",\"note\":" + jsonStr(note) + ",\"items\":[" + items + "]}";
+  char res[40]; snprintf(res, sizeof(res), "OK %d   Failed %d", ok, bad);
+  showWdgStatusScreen("Upload finished", res, "Details: web portal > Upload", n, n);
+  beep(ok > 0 && bad == 0 ? 2 : 1, 60);
+  delay(5000);
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  homeWifiConnected = false; homeWifiIP = ""; userWantsHomeWifi = false;
+  currentScreen = HOME_SCREEN;
+  drawHomeScreen();
+  touchIgnoreUntilUp = true;
+}
+
 void handleReturn() {
+  portalHit();
   returnToDevice = true;
-  String html = F(
-    "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
-    "<title>Returning</title>"
-    "<style>body{background:#000;color:#0f0;font-family:monospace;text-align:center;margin-top:60px}</style>"
-    "</head><body><h2>Returning to device...</h2>"
-    "<p>AP will close. Use the CYD screen.</p></body></html>"
-  );
-  server.send(200, "text/html", html);
+  webJson(200, true, "Back to the board");
 }
 
 // ---------- Web portal hotspot + 60 s countdown screen ----------
@@ -6492,21 +6222,22 @@ void startPortalAP() {
   // Clear old routes then register
   server.stop();
   server.on("/", handleRoot);
-  server.on("/download", handleDownload);
-  server.on("/upload-selected", HTTP_POST, handleUploadSelected);
-  server.on("/downloadall", handleDownloadAll);
-  server.on("/delete", handleDelete);
-  server.on("/delete-selected", HTTP_POST, handleDeleteSelected);
-  server.on("/delete-all-csv", handleDeleteAllCsv);
+  server.on("/theme.css", handleThemeCss);
+  server.on("/f/m.woff2", handleFontM);
+  server.on("/f/b.woff2", handleFontB);
+  server.on("/logo.png", handleLogo);
+  server.on("/favicon.png", handleFavicon);
+  server.on("/favicon.ico", handleFavicon);
+  server.on("/api/status", handleApiStatus);
+  server.on("/api/wifi", HTTP_POST, handleApiWifi);
+  server.on("/api/wigle", HTTP_POST, handleApiWigle);
+  server.on("/api/wdg", HTTP_POST, handleApiWdg);
+  server.on("/api/delete", HTTP_POST, handleApiDelete);
+  server.on("/api/upload", HTTP_POST, handleApiUpload);
+  server.on("/download", []() { portalHit(); handleDownload(); });
+  server.on("/downloadall", []() { portalHit(); handleDownloadAll(); });
+  server.on("/delete", []() { portalHit(); handleDelete(); });
   server.on("/return", handleReturn);
-  server.on("/wifi", handleWifiConfig);
-  server.on("/wifi-save", HTTP_POST, handleWifiSave);
-  server.on("/wdg", handleWdgPage);
-  server.on("/wdg-save", HTTP_POST, handleWdgSave);
-  server.on("/wdg-upload", HTTP_POST, handleWdgUpload);
-  server.on("/wigle", handleWiglePage);
-  server.on("/wigle-save", HTTP_POST, handleWigleSave);
-  server.on("/wigle-upload", HTTP_POST, handleWigleUpload);
   // Captive-portal style: any unknown path -> main page
   server.onNotFound([]() {
     server.sendHeader("Location", "http://192.168.4.1/", true);
@@ -6516,6 +6247,7 @@ void startPortalAP() {
 
   apActive = true;
   apStartTime = millis();
+  portalLastHitMs = 0;
   homeWifiConnected = false;  // STA not used while pure AP is up
   homeWifiIP = "";
 
@@ -6634,6 +6366,8 @@ void tickPortalCountdown() {
   }
 
   unsigned long now = millis();
+  // A browser that is still using the page keeps the hotspot open (it polls every 8 s).
+  if (portalLastHitMs && now - portalLastHitMs < 20000 && now - portalStartMs > 1000) portalStartMs = now - 1000;
   unsigned long elapsed = now - portalStartMs;
 
   // ONLY way out (besides web /return): full 60s timeout
@@ -6735,6 +6469,7 @@ void handlePortal() {
     return;
   }
   // Auto-stop only when not in UI countdown (tickPortalCountdown owns that)
+  if (apActive && portalLastHitMs && millis() - portalLastHitMs < 20000) apStartTime = millis();
   if (apActive && !portalCountdownActive &&
       millis() - apStartTime >= AP_DURATION) {
     stopPortalAP();
@@ -6896,6 +6631,7 @@ void setup() {
 
 // ---------- loop(): touch dispatch for every screen ----------
 void loop() {
+  if (upJobPending && (long)(millis() - upJobAt) >= 0) { server.handleClient(); runUploadJob(); return; }
   // Serial: press 'c' + Enter to force touch calibration anytime
   if (Serial.available()) {
     char c = (char)Serial.read();

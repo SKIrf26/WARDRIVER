@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>SKIrf Wardriver</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="stylesheet" href="/theme.css">
+<style>
+@font-face{font-family:Saira;font-weight:500;font-display:swap;src:url(/f/m.woff2) format("woff2")}
+@font-face{font-family:Saira;font-weight:700;font-display:swap;src:url(/f/b.woff2) format("woff2")}
+:root{--bg:#000;--card:#13161d;--card2:#1e232d;--line:#252a35;--text:#eaeef3;--mute:#808998;--dim:#4a515e;
+--acc:#40f096;--accText:#000;--w24:#40f096;--w5:#40d0ff;--ble:#ec60e8;--ok:#40f096;--warn:#ffbe5a;--bad:#f05c68;--new:#ffb547;
+--r:14px;--gap:12px}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--text)}
+body{font:500 16px/1.4 Saira,"Arial Narrow",system-ui,sans-serif;min-height:100vh;padding:0 16px calc(96px + env(safe-area-inset-bottom))}
+.wrap{max-width:560px;margin:0 auto}
+button,input{font:inherit;color:inherit}
+a{color:inherit}
+.cap{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
+.mute{color:var(--mute)}.dim{color:var(--dim)}
+/* header */
+header{display:flex;align-items:center;gap:12px;padding:18px 0 14px}
+header img{width:46px;height:41px;flex:none}
+.brand{flex:1;min-width:0}
+.brand b{display:block;font-size:22px;font-weight:700;letter-spacing:.14em;line-height:1}
+.brand span{font-size:12px;color:var(--mute);letter-spacing:.1em}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:99px;background:var(--card);font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--mute);white-space:nowrap}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--dim)}
+.dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.dot.warn{background:var(--warn)}
+/* tiles */
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.tile{background:var(--card);border-radius:var(--r);padding:12px 12px 10px;min-width:0}
+.tile .v{font-size:24px;font-weight:700;line-height:1.1;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .s{font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar{height:4px;border-radius:2px;background:var(--line);margin-top:8px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--acc);border-radius:2px}
+.records{display:flex;justify-content:space-between;gap:8px;margin:10px 2px 0;font-size:13px;color:var(--mute)}
+.records b{color:var(--text);font-weight:700}
+/* tabs */
+.tabs{position:sticky;top:0;z-index:5;display:flex;gap:4px;margin:18px -16px 0;padding:10px 16px;background:linear-gradient(var(--bg) 80%,transparent)}
+.tabs button{flex:1;border:0;border-radius:12px;background:var(--card);padding:11px 6px;font-weight:700;font-size:14px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute);cursor:pointer}
+.tabs button.on{background:var(--acc);color:var(--accText)}
+.tabs button .n{opacity:.7;margin-left:4px}
+section{display:none;padding-top:6px}
+section.on{display:block}
+h2{margin:16px 2px 10px;display:flex;align-items:center;justify-content:space-between}
+/* log list */
+.tool{display:flex;align-items:center;gap:10px;margin:4px 2px 10px}
+.tool .grow{flex:1}
+.link{background:none;border:0;padding:6px 0;color:var(--acc);font-weight:700;font-size:14px;letter-spacing:.06em;cursor:pointer;text-decoration:none}
+.list{display:flex;flex-direction:column;gap:8px}
+.row{display:flex;align-items:center;gap:12px;background:var(--card);border-radius:var(--r);padding:12px;cursor:pointer;user-select:none;transition:background .15s}
+.row.sel{background:var(--card2)}
+.chk{width:24px;height:24px;flex:none;border-radius:50%;background:var(--line);display:grid;place-items:center;transition:background .15s}
+.row.sel .chk,.chk.on{background:var(--acc)}
+.chk svg{width:14px;height:14px;opacity:0;stroke:var(--accText)}
+.row.sel .chk svg,.chk.on svg{opacity:1}
+.ico{width:40px;height:40px;flex:none;border-radius:12px;background:var(--line);display:grid;place-items:center;color:var(--acc)}
+.ico svg{width:24px;height:24px}
+.meta{flex:1;min-width:0}
+.meta b{display:block;font-weight:700;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta span{font-size:13px;color:var(--mute)}
+.ibtn{width:40px;height:40px;flex:none;border:0;border-radius:12px;background:transparent;color:var(--mute);display:grid;place-items:center;cursor:pointer}
+.ibtn:active{background:var(--line)}
+.ibtn svg{width:22px;height:22px}
+.empty{background:var(--card);border-radius:var(--r);padding:28px 18px;text-align:center;color:var(--mute)}
+.empty b{display:block;color:var(--text);font-size:18px;margin-bottom:4px}
+/* cards & forms */
+.card{background:var(--card);border-radius:var(--r);padding:16px;margin-bottom:var(--gap)}
+.card h3{margin:0;font-size:18px;font-weight:700;display:flex;align-items:center;gap:10px}
+.card p{margin:6px 0 0;color:var(--mute);font-size:14px}
+.st{margin-left:auto;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;display:flex;align-items:center;gap:6px;color:var(--mute)}
+label{display:block;margin:14px 0 6px}
+input[type=text],input[type=password]{width:100%;border:0;border-radius:12px;background:var(--bg);padding:13px 14px;font-size:16px;outline:2px solid transparent;transition:outline-color .15s}
+input:focus{outline-color:var(--acc)}
+input::placeholder{color:var(--dim)}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border:0;border-radius:12px;padding:14px;margin-top:14px;font-weight:700;font-size:15px;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;background:var(--card2);color:var(--text);text-decoration:none}
+.btn.pri{background:var(--acc);color:var(--accText)}
+.btn.bad{background:transparent;color:var(--bad);outline:2px solid color-mix(in srgb,var(--bad) 45%,transparent);outline-offset:-2px}
+.btn:disabled{opacity:.45;cursor:default}
+.btn svg{width:20px;height:20px}
+.seg{display:flex;gap:6px;margin-top:10px}
+.seg button{flex:1;border:0;border-radius:12px;background:var(--bg);padding:12px 4px;font-weight:700;font-size:14px;letter-spacing:.06em;color:var(--mute);cursor:pointer}
+.seg button.on{background:var(--card2);color:var(--text);box-shadow:inset 0 -3px 0 var(--acc)}
+.steps{margin:12px 0 0;padding:0;list-style:none;counter-reset:s}
+.steps li{position:relative;padding:0 0 10px 34px;color:var(--mute);font-size:14px}
+.steps li:before{counter-increment:s;content:counter(s);position:absolute;left:0;top:-1px;width:24px;height:24px;border-radius:50%;background:var(--line);color:var(--text);display:grid;place-items:center;font-size:13px;font-weight:700}
+.rep{margin-top:10px;font-size:14px}
+.rep div{display:flex;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+.rep div:first-child{border-top:0}
+.rep .f{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{font-size:12px;font-weight:700;letter-spacing:.06em;padding:2px 8px;border-radius:99px;background:var(--line);white-space:nowrap}
+.tag.ok{color:var(--ok)}.tag.bad{color:var(--bad)}.tag.skip{color:var(--mute)}
+/* selection dock */
+.dock{position:fixed;left:0;right:0;bottom:0;z-index:10;visibility:hidden;padding:10px 16px calc(12px + env(safe-area-inset-bottom));background:linear-gradient(transparent,var(--bg) 30%);transform:translateY(110%);transition:transform .2s}
+.dock.on{transform:none;visibility:visible}
+.dock .in{max-width:560px;margin:0 auto;display:flex;align-items:center;gap:8px;background:var(--card2);border-radius:16px;padding:8px 8px 8px 16px;box-shadow:0 8px 30px #000a}
+.dock .n{flex:1;font-weight:700}
+.dock button,.dock a{border:0;border-radius:11px;background:var(--line);color:var(--text);height:42px;padding:0 12px;display:flex;align-items:center;gap:6px;font-weight:700;font-size:13px;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;text-decoration:none}
+.dock .pri{background:var(--acc);color:var(--accText)}
+.dock svg{width:18px;height:18px}
+.done{margin:22px 0 4px}
+footer{margin:18px 0 0;text-align:center;font-size:12px;color:var(--dim);letter-spacing:.06em}
+/* sheet + toast */
+.veil{position:fixed;inset:0;z-index:20;background:#000b;display:none;align-items:flex-end;justify-content:center;padding:16px}
+.veil.on{display:flex}
+.sheet{width:100%;max-width:440px;background:var(--card);border-radius:20px;padding:22px 18px 16px;margin-bottom:env(safe-area-inset-bottom);animation:up .2s ease-out}
+.sheet h3{margin:0 0 6px;font-size:20px}
+.sheet p{margin:0;color:var(--mute)}
+.sheet .row2{display:flex;gap:8px}
+.sheet .row2 .btn{margin-top:18px}
+@keyframes up{from{transform:translateY(30px);opacity:0}}
+.toast{position:fixed;left:50%;top:14px;z-index:30;transform:translate(-50%,-80px);background:var(--card2);border-radius:99px;padding:10px 18px;font-weight:700;font-size:14px;box-shadow:0 8px 30px #000a;transition:transform .25s;white-space:nowrap}
+.toast.on{transform:translate(-50%,0)}
+.toast.bad{color:var(--bad)}
+.radar{width:72px;height:72px;margin:4px auto 14px;border-radius:50%;background:repeating-radial-gradient(circle,transparent 0 11px,var(--line) 11px 12px);position:relative;overflow:hidden}
+.radar:after{content:"";position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 0deg,transparent 70%,color-mix(in srgb,var(--acc) 70%,transparent));animation:spin 1.6s linear infinite}
+@keyframes spin{to{transform:rotate(1turn)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <img src="/logo.png" alt="">
+  <div class="brand"><b>WARDRIVER</b><span>SKIrf &middot; <span id="ver">Beta 1</span></span></div>
+  <div class="pill" id="hot"><i class="dot on"></i><span>HOTSPOT</span></div>
+</header>
+
+<div class="tiles">
+  <div class="tile"><div class="cap">Logs</div><div class="v" id="tLogs">&ndash;</div><div class="s" id="tLogsS">&nbsp;</div></div>
+  <div class="tile"><div class="cap" id="tStoreL">Storage</div><div class="v" id="tStore">&ndash;</div><div class="bar"><i id="tStoreB" style="width:0"></i></div></div>
+  <div class="tile"><div class="cap">GPS</div><div class="v" id="tGps">&ndash;</div><div class="s" id="tGpsS">&nbsp;</div></div>
+</div>
+<div class="records"><span>Best run <b id="rBest">0</b></span><span>Lifetime <b id="rLife">0</b></span><span>Runs <b id="rRuns">0</b></span></div>
+
+<nav class="tabs" id="tabs">
+  <button data-t="logs" class="on">Logs<span class="n" id="nLogs"></span></button>
+  <button data-t="up">Upload</button>
+  <button data-t="set">Setup</button>
+</nav>
+
+<section id="logs" class="on">
+  <div class="tool">
+    <button class="link" id="selAll">Select all</button>
+    <span class="grow"></span>
+    <a class="link" href="/downloadall" id="zipAll">Download all (.zip)</a>
+  </div>
+  <div class="list" id="list"></div>
+</section>
+
+<section id="up">
+  <div class="card">
+    <h3>Send logs to</h3>
+    <div class="seg" id="tgt">
+      <button data-v="wigle" class="on">WiGLE</button>
+      <button data-v="wdg">WDGWars</button>
+      <button data-v="both">Both</button>
+    </div>
+    <div class="seg" id="scope">
+      <button data-v="sel">Selected (<span id="nSel">0</span>)</button>
+      <button data-v="all" class="on">All logs (<span id="nAll">0</span>)</button>
+    </div>
+    <div id="upWarn"></div>
+    <button class="btn pri" id="upGo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg>Start upload</button>
+  </div>
+  <div class="card">
+    <h3>How it works</h3>
+    <ol class="steps">
+      <li>The board closes this hotspot and joins your home Wi-Fi (<b id="hSsid">not set</b>).</li>
+      <li>It uploads each log and shows the progress on its screen.</li>
+      <li>It turns its Wi-Fi off again. Open this portal later to see the results here.</li>
+    </ol>
+  </div>
+  <div class="card" id="repCard" hidden>
+    <h3>Last upload <span class="st" id="repWhen"></span></h3>
+    <div class="rep" id="rep"></div>
+  </div>
+</section>
+
+<section id="set">
+  <form class="card" data-api="/api/wifi">
+    <h3>Home Wi-Fi <span class="st" id="sWifi"></span></h3>
+    <p>Used only for uploads. 2.4 GHz or 5 GHz, with internet access.</p>
+    <label class="cap" for="ssid">Network name</label>
+    <input type="text" id="ssid" name="ssid" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <label class="cap" for="pass">Password</label>
+    <input type="password" id="pass" name="pass" autocomplete="off">
+    <button class="btn">Save</button>
+  </form>
+  <form class="card" data-api="/api/wigle">
+    <h3>WiGLE <span class="st" id="sWigle"></span></h3>
+    <p>API name and token from wigle.net &rsaquo; Account (not your login password).</p>
+    <label class="cap" for="wname">API name</label>
+    <input type="text" id="wname" name="name" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <label class="cap" for="wtok">API token</label>
+    <input type="password" id="wtok" name="token" autocomplete="off">
+    <button class="btn">Save</button>
+  </form>
+  <form class="card" data-api="/api/wdg">
+    <h3>WDGWars <span class="st" id="sWdg"></span></h3>
+    <p>API key from your wdgwars.pl profile.</p>
+    <label class="cap" for="wkey">API key</label>
+    <input type="password" id="wkey" name="key" autocomplete="off">
+    <button class="btn">Save</button>
+  </form>
+  <div class="card">
+    <h3>Storage</h3>
+    <p id="stInfo">&nbsp;</p>
+    <button class="btn bad" id="delAll"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>Delete all logs</button>
+  </div>
+</section>
+
+<a class="btn done" href="#" id="bye">Done &mdash; back to the board</a>
+<footer>Saved keys never leave the board &middot; <span id="foot">192.168.4.1</span></footer>
+</div>
+
+<div class="dock" id="dock"><div class="in">
+  <span class="n" id="dockN">0 selected</span>
+  <button id="dUp" class="pri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg>Upload</button>
+  <a id="dZip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12M6 10l6 6 6-6M4 20h16"/></svg>Zip</a>
+  <button id="dDel" aria-label="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
+</div></div>
+
+<div class="veil" id="veil"><div class="sheet" id="sheet"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const IC={
+C:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 11l1.6-4.4A2 2 0 0 1 8.5 5h7a2 2 0 0 1 1.9 1.6L19 11a2 2 0 0 1 2 2v4a1 1 0 0 1-1 1h-1a2 2 0 0 1-4 0H9a2 2 0 0 1-4 0H4a1 1 0 0 1-1-1v-4a2 2 0 0 1 2-2zm2.1 0h9.8l-1.1-3.4a.6.6 0 0 0-.6-.4H8.8a.6.6 0 0 0-.6.4zM7 15.5a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6zm10 0a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6z"/></svg>',
+M:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 5h3.2l1.5 3.4A4.5 4.5 0 1 1 15 12.6l-1.6 2.9H9.9A4.5 4.5 0 1 1 7.6 10l1.1-1.4H6V7h5.5l1.8 2.6h2.9L15.9 7H14zM5.5 12.3a2.2 2.2 0 1 0 2.1 2.9H5.5zm13 0l-.9-.1 1 2.3-1.9.8-1-2.3a2.2 2.2 0 1 0 2.8-.7z"/></svg>',
+W:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.5" cy="16.5" r="3.5"/><circle cx="18.5" cy="16.5" r="3.5"/><path d="M5.5 16.5L9 9h7l2.5 7.5M12 16.5L9 9M14 6h3l-1 3"/></svg>',
+F:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>',
+DL:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
+CK:'<svg viewBox="0 0 24 24" fill="none" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'};
+const RIDE={C:'Car',M:'Motorcycle',W:'Walk / bike'};
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+let S=null,sel=new Set(),files=[],tgt='wigle',scope='all';
+
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function size(b){return b<1024?b+' B':b<1048576?(b/1024).toFixed(b<10240?1:0)+' KB':b<1073741824?(b/1048576).toFixed(b<10485760?1:0)+' MB':(b/1073741824).toFixed(1)+' GB'}
+function info(n){
+  const m=/^SKIrf_WD_([CMW])_(\d{4})(\d\d)(\d\d)_(\d\d)(\d\d)(\d\d)(?:_(\d+))?\.csv$/i.exec(n);
+  if(!m)return{ic:'F',t:n.replace(/\.csv$/i,''),r:'Log'};
+  const t=+m[3]>0?`${+m[4]} ${MON[+m[3]-1]} ${m[2]} · ${m[5]}:${m[6]}`:n;
+  return{ic:m[1].toUpperCase(),t:t+(m[8]?' ('+m[8]+')':''),r:RIDE[m[1].toUpperCase()]+' · UTC'};
+}
+function toast(msg,bad){const t=$('#toast');t.textContent=msg;t.className='toast on'+(bad?' bad':'');clearTimeout(t._h);t._h=setTimeout(()=>t.className='toast',2600)}
+function sheet(html,keep){$('#sheet').innerHTML=html;$('#veil').classList.add('on');if(!keep)$('#veil').onclick=e=>{if(e.target.id=='veil')closeSheet()}}
+function closeSheet(){$('#veil').classList.remove('on')}
+function ask(title,body,yes,cls){return new Promise(r=>{sheet(`<h3>${title}</h3><p>${body}</p><div class="row2"><button class="btn" id="no">Cancel</button><button class="btn ${cls||'pri'}" id="yes">${yes}</button></div>`);$('#no').onclick=()=>{closeSheet();r(false)};$('#yes').onclick=()=>{closeSheet();r(true)}})}
+async function post(url,data){
+  const b=new URLSearchParams();for(const[k,v]of data)b.append(k,v);
+  const r=await fetch(url,{method:'POST',body:b});let j={};try{j=await r.json()}catch(e){}
+  if(!r.ok||j.ok===false)throw new Error(j.msg||('Error '+r.status));return j;
+}
+
+function renderList(){
+  const L=$('#list');
+  if(!files.length){L.innerHTML='<div class="empty"><b>No logs yet</b>Start a wardrive on the board. Each run saves one log here.</div>';return}
+  L.innerHTML=files.map(f=>{const i=info(f.n);return`<div class="row${sel.has(f.n)?' sel':''}" data-n="${esc(f.n)}">
+<span class="chk">${IC.CK}</span><span class="ico">${IC[i.ic]}</span>
+<span class="meta"><b>${esc(i.t)}</b><span>${i.r} · ${size(f.s)}</span></span>
+<a class="ibtn" href="/download?file=${encodeURIComponent(f.n)}" aria-label="Download" onclick="event.stopPropagation()">${IC.DL}</a></div>`}).join('');
+  $$('#list .row').forEach(r=>r.onclick=()=>{const n=r.dataset.n;sel.has(n)?sel.delete(n):sel.add(n);r.classList.toggle('sel');selChanged()});
+}
+function selChanged(){
+  const n=sel.size;$('#dockN').textContent=n+' selected';$('#dock').classList.toggle('on',n>0&&cur=='logs');
+  $('#nSel').textContent=n;$('#selAll').textContent=n&&n==files.length?'Select none':'Select all';
+  $('#dZip').href='/downloadall?'+[...sel].map(f=>'f='+encodeURIComponent(f)).join('&');
+  if(!n&&scope=='sel')setSeg('#scope','all');upCheck();
+}
+function setSeg(id,v){$$(id+' button').forEach(b=>b.classList.toggle('on',b.dataset.v==v));if(id=='#tgt')tgt=v;else scope=v;upCheck()}
+function upCheck(){
+  if(!S)return;const w=[];const need=t=>tgt==t||tgt=='both';
+  if(!S.wifi.ssid)w.push('Add your home Wi-Fi in Setup.');
+  if(need('wigle')&&!(S.wigle.name&&S.wigle.token))w.push('Add your WiGLE API name and token in Setup.');
+  if(need('wdg')&&!S.wdg.key)w.push('Add your WDGWars API key in Setup.');
+  const cnt=scope=='sel'?sel.size:files.length;if(!cnt)w.push(scope=='sel'?'Select logs on the Logs tab first.':'There are no logs to upload yet.');
+  $('#upWarn').innerHTML=w.map(x=>`<p style="color:var(--warn)">${x}</p>`).join('');$('#upGo').disabled=w.length>0;
+}
+function stat(el,ok,txt){$(el).innerHTML=`<i class="dot ${ok?'on':''}"></i>${txt}`}
+
+function render(){
+  $('#ver').textContent=S.v;
+  const n=files.length,tot=files.reduce((a,f)=>a+f.s,0);
+  $('#tLogs').textContent=n;$('#tLogsS').textContent=size(tot);$('#nLogs').textContent=n?n:'';$('#nAll').textContent=n;
+  $('#tStoreL').textContent=S.store.kind=='SD'?'microSD':'Board flash';
+  const pct=S.store.total?Math.min(100,S.store.used*100/S.store.total):0;
+  $('#tStore').textContent=S.store.total?(pct<1&&S.store.used?'<1':Math.round(pct))+'%':'–';$('#tStoreB').style.width=pct+'%';
+  $('#stInfo').textContent=(S.store.kind=='SD'?'microSD card: ':'Board flash (no card found): ')+size(S.store.used)+' used of '+size(S.store.total)+'.';
+  const g=S.gps;$('#tGps').textContent=g.fix?g.sats+' sats':(g.sats?g.sats+' sats':'No fix');$('#tGps').style.color=g.fix?'var(--ok)':'';
+  $('#tGpsS').textContent=g.fix?g.lat.toFixed(4)+', '+g.lng.toFixed(4):'searching';
+  $('#rBest').textContent=S.rec.best.toLocaleString();$('#rLife').textContent=S.rec.life.toLocaleString();$('#rRuns').textContent=S.rec.runs;
+  stat('#sWifi',!!S.wifi.ssid,S.wifi.ssid?'saved':'not set');stat('#sWigle',S.wigle.name&&S.wigle.token,S.wigle.token?'saved':'not set');
+  stat('#sWdg',S.wdg.key,S.wdg.key?(S.wdg.user?esc(S.wdg.user):'saved'):'not set');
+  $('#hSsid').textContent=S.wifi.ssid||'not set';
+  for(const[id,v]of[['#ssid',S.wifi.ssid],['#wname',S.wigle.name]])if(document.activeElement!=$(id))$(id).value=v;
+  $('#pass').placeholder=S.wifi.pass?'saved – leave blank to keep':'open network: leave blank';
+  $('#wtok').placeholder=S.wigle.token?'saved – leave blank to keep':'not set';$('#wkey').placeholder=S.wdg.key?'saved – leave blank to keep':'not set';
+  if(S.last&&S.last.items&&S.last.items.length){$('#repCard').hidden=false;$('#repWhen').textContent=S.last.when||'';
+    const tg=(k,v)=>v?`<span class="tag ${v=='OK'?'ok':v=='SKIP'?'skip':'bad'}" title="${esc(v)}">${k} ${v=='OK'||v=='SKIP'?v:'FAIL'}</span>`:'';
+    $('#rep').innerHTML=(S.last.note?`<div><span class="f" style="color:var(--warn);white-space:normal">${esc(S.last.note)}</span></div>`:'')+
+      S.last.items.map(i=>`<div><span class="f">${esc(info(i.f).t)}</span>${tg('WiGLE',i.wigle)}${tg('WDG',i.wdg)}</div>`).join('')}
+  $('#foot').textContent=location.host;upCheck();
+}
+async function load(first){
+  try{const r=await fetch('/api/status',{cache:'no-store'});S=await r.json();
+    const names=S.files.map(f=>f.n+f.s).join();if(first||names!=files.map(f=>f.n+f.s).join()){const key=n=>{const m=/_(\d{8}_\d{6})(?:_(\d+))?\.csv$/i.exec(n);return m?m[1]+(m[2]||'0').padStart(3,'0'):''};files=S.files.sort((a,b)=>{const x=key(a.n),y=key(b.n);return x!=y?(x<y?1:-1):(a.n<b.n?-1:1)});
+      for(const n of[...sel])if(!files.find(f=>f.n==n))sel.delete(n);renderList();selChanged()}
+    render();$('#hot').innerHTML='<i class="dot on"></i><span>'+(S.ap?'HOTSPOT':'HOME WI-FI')+'</span>';
+  }catch(e){$('#hot').innerHTML='<i class="dot warn"></i><span>OFFLINE</span>'}
+}
+
+let cur='logs';
+$$('#tabs button').forEach(b=>b.onclick=()=>{cur=b.dataset.t;$$('#tabs button').forEach(x=>x.classList.toggle('on',x==b));$$('section').forEach(s=>s.classList.toggle('on',s.id==cur));selChanged();scrollTo({top:0})});
+$('#selAll').onclick=()=>{if(sel.size==files.length)sel.clear();else files.forEach(f=>sel.add(f.n));renderList();selChanged()};
+$$('#tgt button').forEach(b=>b.onclick=()=>setSeg('#tgt',b.dataset.v));
+$$('#scope button').forEach(b=>b.onclick=()=>{if(b.dataset.v=='sel'&&!sel.size){toast('Select logs on the Logs tab first');return}setSeg('#scope',b.dataset.v)});
+$('#dUp').onclick=()=>{setSeg('#scope','sel');$('[data-t=up]').click()};
+$('#dDel').onclick=async()=>{const n=sel.size;if(!await ask('Delete '+n+' log'+(n>1?'s':'')+'?','They are removed from the board for good. Download them first if you want a copy.','Delete','bad'))return;
+  try{const j=await post('/api/delete',[...sel].map(f=>['f',f]));sel.clear();toast(j.msg);load(true)}catch(e){toast(e.message,1)}};
+$('#delAll').onclick=async()=>{if(!files.length){toast('No logs to delete');return}
+  if(!await ask('Delete all '+files.length+' logs?','Every wardrive log on the board is removed for good. Your Wi-Fi and API keys stay.','Delete all','bad'))return;
+  try{const j=await post('/api/delete',[['all','1']]);sel.clear();toast(j.msg);load(true)}catch(e){toast(e.message,1)}};
+$$('form[data-api]').forEach(f=>f.onsubmit=async e=>{e.preventDefault();const b=f.querySelector('.btn');b.disabled=true;
+  try{const j=await post(f.dataset.api,new FormData(f));f.querySelectorAll('input[type=password]').forEach(i=>i.value='');toast(j.msg);await load()}catch(err){toast(err.message,1)}b.disabled=false});
+$('#upGo').onclick=async()=>{
+  const list=scope=='sel'?[...sel]:[],cnt=scope=='sel'?sel.size:files.length,to={wigle:'WiGLE',wdg:'WDGWars',both:'WiGLE and WDGWars'}[tgt];
+  if(!await ask('Upload '+cnt+' log'+(cnt>1?'s':'')+' to '+to+'?','This page will lose its connection: the board leaves the hotspot to join “'+esc(S.wifi.ssid)+'”. Watch its screen for progress.','Upload'))return;
+  try{await post('/api/upload',[['target',tgt],...list.map(f=>['f',f])]);
+    sheet(`<div class="radar"></div><h3 style="text-align:center">Uploading on the board</h3><p style="text-align:center">It is joining “${esc(S.wifi.ssid)}” now and shows each file on its screen. This hotspot closes; when the board is done, open the portal again (Settings &rsaquo; Web portal) to see the results.</p>`,1);
+  }catch(e){toast(e.message,1)}};
+$('#bye').onclick=async e=>{e.preventDefault();try{await fetch('/return')}catch(x){}
+  sheet('<h3>All set</h3><p>The hotspot is closing and the board is back on its Home screen. You can close this page.</p>',1)};
+load(true);setInterval(load,8000);
+</script>
+</body>
+</html>

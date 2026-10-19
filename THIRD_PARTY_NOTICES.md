@@ -11,7 +11,7 @@ It is built with, and links against, the open-source components below. Their lic
 | XPT2046_Touchscreen (Paul Stoffregen) | Touch controller | MIT | [licenses/MIT-XPT2046_Touchscreen.txt](licenses/MIT-XPT2046_Touchscreen.txt) |
 | TinyGPSPlus (Mikal Hart) | NMEA parsing | LGPL 2.1 or later | [licenses/LGPL-2.1.txt](licenses/LGPL-2.1.txt) |
 | ArduinoJson (Benoit Blanchon) | Settings files and WDGWars replies | MIT | [licenses/MIT-ArduinoJson.txt](licenses/MIT-ArduinoJson.txt) |
-| Saira Semi Condensed (The Saira Project Authors) | Glyph shapes drawn on screen | SIL Open Font License 1.1 | [licenses/OFL-1.1-Saira.txt](licenses/OFL-1.1-Saira.txt) |
+| Saira Semi Condensed (The Saira Project Authors) | Glyph shapes drawn on screen, and the web portal's font (a subset, as WOFF2, in `SKIrf_Web.h`) | SIL Open Font License 1.1 | [licenses/OFL-1.1-Saira.txt](licenses/OFL-1.1-Saira.txt) |
 | Orbitron (The Orbitron Project Authors), as shipped in LovyanGFX | The "SKIrf" logo lettering on the boot and Home screens | SIL Open Font License 1.1 | [licenses/OFL-1.1-Orbitron.txt](licenses/OFL-1.1-Orbitron.txt) |
 | Material Design Icons (Pictogrammers) | Interface icon shapes | Apache 2.0 | [licenses/Apache-2.0.txt](licenses/Apache-2.0.txt) |
 

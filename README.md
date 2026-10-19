@@ -31,7 +31,7 @@ It is passive: it only receives the beacons and adverts that devices broadcast o
 - **Home radar**: the arm sweeps and every new catch lands as a blip (closer to the middle = stronger)
 - **GPS screen** with satellites, fix, altitude, speed, position, heading and a compass; GPS pins can be changed on screen
 - **Logs on the board**: select runs, upload to WiGLE or WDGWars over your home Wi-Fi, or delete them
-- **Web portal** for 60 seconds at every start (and from Settings): download logs or all as a .zip, upload, delete, and save your Wi-Fi and API keys from a phone or laptop
+- **Web portal** at every start (and from Settings), in the app's look: browse runs, download one or a .zip, upload to WiGLE / WDGWars, delete, and save your Wi-Fi and API keys from a phone. The hotspot stays open while the page is in use.
 - **WDGWars stats** on the board
 - **Pro mode**: an operator console with RSSI windows, channel plans, GPS gates, scan interval and a live session readout
 - Themes (eight accent colours plus WDGW pink + cyan), four screen orientations, brightness presets, drag-to-scroll lists everywhere

@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- Web portal: the hotspot stays open while the page is in use, instead of closing 60 seconds after it started.
+- Web portal: uploads no longer cut the phone off without a result. The board now runs the upload itself (hotspot off, join home Wi-Fi, progress on its screen, Wi-Fi off again) and the portal's Upload tab shows the result next time. Saving home Wi-Fi no longer drops the hotspot to test it.
 - Logs: a run's CSV file and header are now written before the Wi-Fi and Bluetooth radios start, while internal memory is free. A failed write remounts the microSD card and tries again; if the card still refuses, the run carries on in the board's flash under the same file name instead of losing rows. The GPS buffer moved to PSRAM to leave internal memory for the card. The run screen shows LOG NOT SAVING (red) if nothing can be written, and the Serial Monitor prints the free memory when a write fails.
 - GPS: position no longer sticks while walking on ATGM336H and other CASIC modules. Many ship set for vehicles, which holds the position still at low speed, so it updated in bursts. When the module's RX is wired, the board sends one $PCAS11 sentence (not saved in the module): portable on the GPS screen, walking for a Walk/Bike run, vehicle for Car and Motorcycle.
 - GPS: data is read from the module by a background task every 5 ms into a 16 KB buffer, so a slow screen update or SD card call can no longer make the board drop position sentences. Before, the position could freeze for 20-30 seconds and then jump.
@@ -20,6 +22,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GPS: satellites in view are also read from $GNGSV sentences.
 
 ### Added
+- Web portal redesigned to match the board: one page with Logs, Upload and Setup tabs, in the board's theme colours and font. Shows log count and size, storage use, GPS and your records; logs are listed by date with their ride, and can be selected to upload, download as one .zip, or delete. Confirmations and messages appear in the page instead of browser pop-ups.
 - GPS screen: "Moved N sec ago" shows how long ago the module last reported a new position; latitude and longitude show 6 decimals.
 - GPS screen: link health for the last 5 seconds: Fix % (position sentences that carried a fix), HDOP, bad sentences, lost bytes and the longest main-loop delay. The same numbers are on the Serial Monitor's "GPS:" line.
 - GPS screen: shows the module's antenna report when it sends one (ATGM336H and others report ANTENNA OK / OPEN / SHORT); FIX says NO ANTENNA when the antenna is open or shorted.
