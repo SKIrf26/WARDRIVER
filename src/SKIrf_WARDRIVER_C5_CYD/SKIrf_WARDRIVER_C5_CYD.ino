@@ -1430,7 +1430,10 @@ static void gpsPumpTask(void*) {
 
 void gpsOpenPort(int rx, int tx, uint32_t baud) {
   if (!gpsRing) {
-    gpsRing = (uint8_t*)malloc(GPS_RING_SZ);
+#ifndef SKIRF_HOST_PREVIEW
+    gpsRing = (uint8_t*)heap_caps_malloc(GPS_RING_SZ, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);   // keep internal RAM for Wi-Fi, BLE and the SD card
+#endif
+    if (!gpsRing) gpsRing = (uint8_t*)malloc(GPS_RING_SZ);
 #ifndef SKIRF_HOST_PREVIEW
     gpsPortMux = xSemaphoreCreateMutex();
     xTaskCreate(gpsPumpTask, "gpsPump", 3072, nullptr, 5, nullptr);   // above loop(): never starved
@@ -1788,16 +1791,50 @@ File openLogFile(const char* path, const char* mode) {
 static char wdLogBuf[4096];
 static size_t wdLogLen = 0;
 
+bool wdLogFailed = false;          // last write to the log did not reach the card (shown on the run screen)
+static const char WD_CSV_HEADER[] =
+  "WigleWifi-1.6,appRelease=" SKIRF_APP_RELEASE ",model=NM-CYD-C5,release=" SKIRF_APP_RELEASE
+  ",device=SKIrf-Wardriver,display=ST7789,board=ESP32-C5,brand=SKIrf,star=Sol,body=3,subBody=0\n"
+  "MAC,SSID,AuthMode,FirstSeen,Channel,Frequency,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,RCOIs,MfgrId,Type\n";
+
+static bool wdWriteOnce(const uint8_t* data, size_t len, const char* mode) {
+  tft.endWrite();                  // the card shares the display's SPI bus: make sure the display let go of it
+  File f = openLogFile(wardriveFile.c_str(), mode);
+  if (!f) return false;
+  size_t w = f.write(data, len);
+  f.close();
+  return w == len;
+}
+
+// Write to the run's log. On a failure: remount the card and try again; if the card still
+// refuses, carry on in the board's flash (same file name) so the run is not lost.
+static bool wdWriteLog(const uint8_t* data, size_t len, const char* mode) {
+  if (wardriveFile == "") return false;
+  if (wdWriteOnce(data, len, mode)) { wdLogFailed = false; return true; }
+  Serial.printf("Log write failed on %s (free heap %u, largest block %u) - remounting\n",
+                logUseLittleFS ? "flash" : "SD", (unsigned)ESP.getFreeHeap(), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA));
+  if (!logUseLittleFS) {
+    SD.end(); sdReady = false; delay(20);
+    if (tryMountSd() && wdWriteOnce(data, len, mode)) { wdLogFailed = false; Serial.println("Log write OK after SD remount"); return true; }
+    if (LittleFS.begin(true)) {
+      logUseLittleFS = true;
+      bool fresh = !LittleFS.exists(wardriveFile);
+      if (fresh && strcmp(mode, FILE_WRITE) != 0) wdWriteOnce((const uint8_t*)WD_CSV_HEADER, strlen(WD_CSV_HEADER), FILE_WRITE);
+      if (wdWriteOnce(data, len, mode)) {
+        wdLogFailed = false;
+        Serial.printf("SD keeps failing - this run continues in the board's flash: %s\n", wardriveFile.c_str());
+        return true;
+      }
+    }
+  }
+  wdLogFailed = true;
+  return false;
+}
+
 void wdLogFlush() {
   if (!wdLogLen) return;
-  File f = openLogFile(wardriveFile.c_str(), FILE_APPEND);
-  if (f) {
-    f.write((const uint8_t*)wdLogBuf, wdLogLen);
-    f.close();
-  } else {
-    Serial.println("CSV append failed");
-  }
-  wdLogLen = 0;
+  if (wdWriteLog((const uint8_t*)wdLogBuf, wdLogLen, FILE_APPEND)) wdLogLen = 0;
+  else if (wdLogLen > sizeof(wdLogBuf) - 512) wdLogLen = 0;   // keep the rows for the next try unless the buffer is full
 }
 
 static void wdLogAppend(const char* line) {
@@ -2059,20 +2096,6 @@ void startWardriving() {
   if (wardriveActive) return;
   if (apActive) stopPortalAP();
 
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
-  delay(60);
-  esp_wifi_set_ps(WIFI_PS_NONE);
-#if defined(WIFI_BAND_MODE_AUTO)
-  WiFi.setBandMode(WIFI_BAND_MODE_AUTO);
-#endif
-  esp_wifi_set_country_code(SKIRF_WIFI_COUNTRY, false);
-
-  if (pBLEScan == nullptr) {
-    BLEDevice::init("");
-    pBLEScan = BLEDevice::getScan();
-  }
-
   seenInit();
   if (!openLogFS()) Serial.println("No SD and no LittleFS — scanning anyway, no file");
 
@@ -2087,6 +2110,27 @@ void startWardriving() {
   String fn = String(base) + ".csv";
   for (int n = 2; n < 100 && logFs().exists(fn); n++) fn = String(base) + "_" + String(n) + ".csv";
   wardriveFile = fn;
+
+  // Create the log (with its header) before the radios start: the card is set up while
+  // internal memory is still free, and a card problem shows at once.
+  if (wdWriteLog((const uint8_t*)WD_CSV_HEADER, strlen(WD_CSV_HEADER), FILE_WRITE))
+    Serial.printf("Wardrive started: %s (%s)\n", wardriveFile.c_str(), logUseLittleFS ? "LittleFS" : "SD");
+  else
+    Serial.println("CSV not created - UI will still show live counts");
+
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+  delay(60);
+  esp_wifi_set_ps(WIFI_PS_NONE);
+#if defined(WIFI_BAND_MODE_AUTO)
+  WiFi.setBandMode(WIFI_BAND_MODE_AUTO);
+#endif
+  esp_wifi_set_country_code(SKIRF_WIFI_COUNTRY, false);
+
+  if (pBLEScan == nullptr) {
+    BLEDevice::init("");
+    pBLEScan = BLEDevice::getScan();
+  }
 
   wardriveActive = true;
   sessionWifiTotal = sessionWifi24Total = sessionWifi5Total = sessionBleTotal = 0;
@@ -2109,16 +2153,6 @@ void startWardriving() {
   lastWardriveScan = 0;
   scanPhase = 0;
 
-  File file = openLogFile(wardriveFile.c_str(), FILE_WRITE);
-  if (file) {
-    file.print("WigleWifi-1.6,appRelease=" SKIRF_APP_RELEASE ",model=NM-CYD-C5,release=" SKIRF_APP_RELEASE
-               ",device=SKIrf-Wardriver,display=ST7789,board=ESP32-C5,brand=SKIrf,star=Sol,body=3,subBody=0\n");
-    file.print("MAC,SSID,AuthMode,FirstSeen,Channel,Frequency,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,RCOIs,MfgrId,Type\n");
-    file.close();
-    Serial.printf("Wardrive started: %s (%s)\n", wardriveFile.c_str(), logUseLittleFS ? "LittleFS" : "SD");
-  } else {
-    Serial.println("CSV not created — UI will still show live counts");
-  }
   beep(2, 70);
 }
 
@@ -2943,6 +2977,7 @@ void wdLayout(WdLayout &L) {
 const char* wdStatusText() {
   static char st[36];
   if (!wardriveActive) return "READY";
+  if (wdLogFailed) return "LOG NOT SAVING";
   if (wdWaitingGps || !proGpsAccOk()) return gpsValid ? "WAIT GPS SATS" : "WAITING FOR GPS";
   if (scanPhase == 1) {
     int mode = (proMode && proChanMode != 0) ? proChanMode : wdChanFilter;
@@ -2955,6 +2990,7 @@ const char* wdStatusText() {
 
 uint16_t wdStatusColor() {
   if (!wardriveActive) return UI_MUTE;
+  if (wdLogFailed) return C_BAD;
   if (wdWaitingGps || !proGpsAccOk()) return C_WARN;
   return C_OK;
 }
