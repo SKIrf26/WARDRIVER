@@ -35,6 +35,7 @@
 // ESP32 Arduino 3.x TLS client (Espressif package required)
 #include <NetworkClientSecure.h>
 #include <mbedtls/base64.h>
+#include <mbedtls/platform.h>
 #define SKIRF_SECURE_CLIENT NetworkClientSecure
 #include <BLEDevice.h>
 #include <BLEScan.h>
@@ -6696,11 +6697,30 @@ void runSplash(unsigned long ms) {
   bootSplashActive = false;
 }
 
+// ---------- TLS memory ----------
+// A TLS connection (WiGLE / WDGWars uploads) needs 40-50 KB, and with Wi-Fi, the display
+// and the SD card running the chip's internal RAM has less than that left. mbedTLS lets the
+// firmware supply its allocator: blocks of 512 bytes or more go to the 8 MB PSRAM, small
+// ones stay internal (the same as ESP-IDF's CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC option).
+#ifndef SKIRF_HOST_PREVIEW
+static void* tlsCalloc(size_t n, size_t size) {
+  void* p = nullptr;
+  if (n * size >= 512) p = heap_caps_calloc(n, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!p) p = heap_caps_calloc(n, size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (!p) p = heap_caps_calloc(n, size, MALLOC_CAP_8BIT);
+  return p;
+}
+static void tlsFree(void* p) { heap_caps_free(p); }
+#endif
+
 // ---------- setup() ----------
 void setup() {
   Serial.begin(115200);
   delay(200);
   Serial.println("\n=== WARDRIVER BOOT ===");
+#ifndef SKIRF_HOST_PREVIEW
+  if (ESP.getPsramSize() > 0) mbedtls_platform_set_calloc_free(tlsCalloc, tlsFree);
+#endif
 
   pinMode(BUZZER_PIN, OUTPUT);
   pinMode(TFT_BL, OUTPUT);

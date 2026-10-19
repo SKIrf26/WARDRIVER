@@ -6,6 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- Uploads failed with "memory allocation failed": a TLS connection needs 40-50 KB and the chip's internal RAM had about 45 KB left with Wi-Fi, the display and the SD card running. mbedTLS now takes its larger blocks (512 bytes and up) from the 8 MB PSRAM, as ESP-IDF's CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC would.
 - Uploads now say why they failed: Wi-Fi dropped, the server name could not be looked up (no internet), the secure connection failed (with the TLS error and free memory), or the server's own reply (for example "401 Unauthorized - <message>"). WiGLE replies of 200 with "success":false now count as failures. The secure connection is retried once. The reason shows on the board's upload screens (wrapped over up to three lines) and under each file in the portal's Upload tab.
 - Wi-Fi scans came back empty, joining the home network failed and uploads failed after a run: the Bluetooth stack stayed up after the run and kept its memory, while Wi-Fi is fully shut down when idle and has to start again for every scan or join. Bluetooth is now shut down when a run ends, and every scan, join and upload starts the Wi-Fi with full power (the portal hotspot runs at 8.5 dBm), 2.4 + 5 GHz and the Wi-Fi country set.
 - Wi-Fi screens say why a scan or join failed (network not found, password rejected, no answer, Wi-Fi did not start) instead of a status number; the portal's upload report includes the reason too.
