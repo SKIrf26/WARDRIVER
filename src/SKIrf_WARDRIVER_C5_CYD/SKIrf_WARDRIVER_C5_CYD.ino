@@ -189,7 +189,20 @@ unsigned long gsvMs[6] = {0, 0, 0, 0, 0, 0};
 bool gpsLinkLocked = false;
 // The module's own text messages ($GPTXT / $GNTXT), e.g. ATGM336H "ANTENNA OPEN" / "ANTENNA OK"
 char gpsLine[128]; int gpsLineLen = 0;
-unsigned long gpsRelabelCount = 0;   // GGA/RMC sentences whose talker (BD, GQ, ...) TinyGPS++ would have dropped
+unsigned long gpsRelabelCount = 0;
+// GPS bytes are moved from the UART into a 16 KB ring by a small task that runs every 5 ms,
+// whatever the main loop is doing, so a slow screen, SD card or radio call can no longer
+// overflow the UART and lose position sentences (about 22 s of data at 5 Hz fits).
+static const uint32_t GPS_RING_SZ = 16384;
+static uint8_t* gpsRing = nullptr;
+static volatile uint32_t gpsRingHead = 0, gpsRingTail = 0;
+volatile uint32_t gpsRingDrops = 0, gpsUartErrs = 0;
+#ifndef SKIRF_HOST_PREVIEW
+static SemaphoreHandle_t gpsPortMux = nullptr;
+#endif
+// live link health for the GPS screen (5 s window)
+unsigned long gpsWinStart = 0, gpsWinPos = 0, gpsWinFix = 0, gpsWinFail0 = 0, gpsWinLost0 = 0, gpsLoopMaxMs = 0, gpsLoopLastMs = 0;
+int gpsDiagFixPct = -1; unsigned long gpsDiagBad = 0, gpsDiagLost = 0, gpsDiagLag = 0;   // GGA/RMC sentences whose talker (BD, GQ, ...) TinyGPS++ would have dropped
 char gpsTxt[40] = "";
 char gpsAnt[8] = "";        // "OK", "OPEN", "SHORT" or "" (module does not report it)
 unsigned long gpsTxtMs = 0;
@@ -1387,11 +1400,52 @@ void gpsApplyConfig() {
 #endif
 }
 
+static void gpsPumpUart() {
+  int n;
+  while ((n = gpsSerial.available()) > 0) {
+    uint8_t tmp[128];
+    int k = gpsSerial.read(tmp, n < 128 ? n : 128);
+    if (k <= 0) break;
+    for (int i = 0; i < k; i++) {
+      uint32_t h = gpsRingHead, nh = (h + 1) % GPS_RING_SZ;
+      if (nh == gpsRingTail) { gpsRingDrops++; continue; }
+      gpsRing[h] = tmp[i];
+      gpsRingHead = nh;
+    }
+  }
+}
+#ifndef SKIRF_HOST_PREVIEW
+static void gpsPumpTask(void*) {
+  for (;;) {
+    if (xSemaphoreTake(gpsPortMux, pdMS_TO_TICKS(50)) == pdTRUE) {
+      gpsPumpUart();
+      xSemaphoreGive(gpsPortMux);
+    }
+    vTaskDelay(pdMS_TO_TICKS(5));
+  }
+}
+#endif
+
 void gpsOpenPort(int rx, int tx, uint32_t baud) {
+  if (!gpsRing) {
+    gpsRing = (uint8_t*)malloc(GPS_RING_SZ);
+#ifndef SKIRF_HOST_PREVIEW
+    gpsPortMux = xSemaphoreCreateMutex();
+    xTaskCreate(gpsPumpTask, "gpsPump", 3072, nullptr, 5, nullptr);   // above loop(): never starved
+#endif
+  }
+#ifndef SKIRF_HOST_PREVIEW
+  xSemaphoreTake(gpsPortMux, portMAX_DELAY);
+#endif
   gpsSerial.end();
   delay(30);
-  gpsSerial.setRxBufferSize(2048);   // survive SD/BLE/redraw stalls without losing NMEA
+  gpsSerial.setRxBufferSize(4096);
+  gpsSerial.onReceiveError([](hardwareSerial_error_t) { gpsUartErrs++; });   // FIFO / buffer overflow, framing
   gpsSerial.begin(baud, SERIAL_8N1, rx, tx);
+  gpsRingTail = gpsRingHead;
+#ifndef SKIRF_HOST_PREVIEW
+  xSemaphoreGive(gpsPortMux);
+#endif
   gpsBaudNow = baud;
   gpsChars = 0;
   gpsLastByteMs = millis();
@@ -1424,13 +1478,39 @@ static void gpsFeedLine(char* s, int len) {
       }
     }
   }
+  if (len >= 7 && s[0] == '$') {
+    bool isGGA = !strncmp(s + 3, "GGA", 3), isRMC = !strncmp(s + 3, "RMC", 3);
+    if (isGGA || isRMC) {
+      int want = isGGA ? 6 : 2, commas = 0; const char* q = s;
+      while (*q && commas < want) { if (*q == ',') commas++; q++; }
+      gpsWinPos++;
+      if (commas == want && (isGGA ? (*q > '0' && *q <= '9') : *q == 'A')) gpsWinFix++;
+    }
+  }
   for (int i = 0; i < len; i++) gps.encode(s[i]);
   gps.encode('\r'); gps.encode('\n');
 }
 
 void readGPS() {
-  while (gpsSerial.available() > 0) {
-    char c = (char)gpsSerial.read();
+#ifdef SKIRF_HOST_PREVIEW
+  if (gpsRing) gpsPumpUart();
+#endif
+  {   // loop health: the longest gap between two readGPS() calls
+    unsigned long now = millis();
+    if (gpsLoopLastMs && now - gpsLoopLastMs > gpsLoopMaxMs) gpsLoopMaxMs = now - gpsLoopLastMs;
+    gpsLoopLastMs = now;
+    if (now - gpsWinStart >= 5000) {
+      unsigned long lost = gpsRingDrops + gpsUartErrs;
+      gpsDiagFixPct = gpsWinPos ? (int)(gpsWinFix * 100 / gpsWinPos) : -1;
+      gpsDiagBad = gps.failedChecksum() - gpsWinFail0;
+      gpsDiagLost = lost - gpsWinLost0;
+      gpsDiagLag = gpsLoopMaxMs;
+      gpsWinStart = now; gpsWinPos = gpsWinFix = 0; gpsWinFail0 = gps.failedChecksum(); gpsWinLost0 = lost; gpsLoopMaxMs = 0;
+    }
+  }
+  while (gpsRing && gpsRingTail != gpsRingHead) {
+    char c = (char)gpsRing[gpsRingTail];
+    gpsRingTail = (gpsRingTail + 1) % GPS_RING_SZ;
     gpsChars++;
     gpsLastByteMs = millis();
     if (gpsChars < 400) Serial.write(c);   // first bytes after each (re)open, for diagnosis
@@ -1479,11 +1559,12 @@ void readGPS() {
   if (millis() - gpsDiagMs > 10000) {
     gpsDiagMs = millis();
     if (gpsAnt[0]) Serial.printf("GPS antenna: %s\n", gpsAnt);
-    Serial.printf("GPS: RX=%d TX=%d baud=%lu last byte %lus ago chars=%lu ok=%lu bad=%lu relabelled=%lu used=%d view=%d fix=%d hdop=%.1f\n",
+    Serial.printf("GPS: RX=%d TX=%d baud=%lu last byte %lus ago chars=%lu ok=%lu bad=%lu relabelled=%lu used=%d view=%d fix=%d hdop=%.1f | 5s: fix %d%% bad %lu lost %lu lag %lums\n",
                   gpsPinsSwapped ? gpsTxPin : gpsRxPin, gpsPinsSwapped ? gpsRxPin : gpsTxPin,
                   (unsigned long)gpsBaudNow, (millis() - gpsLastByteMs) / 1000, (unsigned long)gps.charsProcessed(),
                   (unsigned long)gps.passedChecksum(), (unsigned long)gps.failedChecksum(), gpsRelabelCount,
-                  gpsSats, gpsInView, (int)gpsValid, gps.hdop.isValid() ? gps.hdop.hdop() : 0.0);
+                  gpsSats, gpsInView, (int)gpsValid, gps.hdop.isValid() ? gps.hdop.hdop() : 0.0,
+                  gpsDiagFixPct, gpsDiagBad, gpsDiagLost, gpsDiagLag);
   }
   if (gps.course.isValid()) gpsCourse = gps.course.deg();
   if (gps.speed.isValid()) gpsSpeed = gps.speed.mph();
@@ -3467,12 +3548,20 @@ void gpsDrawSig(LovyanGFX &g, int bx, int by, int w, int h) {
       else if (gpsSats) snprintf(b, sizeof(b), "%d used, no fix yet", gpsSats);   // module sends no GSV list
       else snprintf(b, sizeof(b), "Data OK, no sats yet");
     }
+    else if (gpsDiagFixPct >= 0) {
+      if (gpsDiagFixPct < 90) g.setTextColor(C_NEW, TFT_BLACK);
+      snprintf(b, sizeof(b), "Fix %d%%  HDOP %.1f", gpsDiagFixPct, gps.hdop.isValid() ? gps.hdop.hdop() : 0.0);
+    }
     else if (gps.hdop.isValid()) snprintf(b, sizeof(b), "HDOP %.1f", gps.hdop.hdop());
     else snprintf(b, sizeof(b), "HDOP --");
     g.drawString(b, bx + 4, by + h - 28);
     g.setTextColor(UI_DIM, TFT_BLACK);
     if (!gpsValid && gpsAnt[0] && strcmp(gpsAnt, "OK")) { g.setTextColor(C_BAD, TFT_BLACK); snprintf(b, sizeof(b), "Antenna %s", gpsAnt); }
     else if (!gpsValid && gpsAnt[0]) snprintf(b, sizeof(b), "Antenna OK");
+    else if (gpsValid && gpsDiagFixPct >= 0) {   // link health: bad sentences, lost bytes, longest loop gap
+      if (gpsDiagBad || gpsDiagLost || gpsDiagLag > 1000) g.setTextColor(C_NEW, TFT_BLACK);
+      snprintf(b, sizeof(b), "Bad %lu Lost %lu %lums", gpsDiagBad, gpsDiagLost, gpsDiagLag);
+    }
     else if (gps.time.isValid()) snprintf(b, sizeof(b), "%02d:%02d:%02d UTC", gps.time.hour(), gps.time.minute(), gps.time.second());
     else snprintf(b, sizeof(b), "--:--:-- UTC");
     g.drawString(b, bx + 4, by + h - 15);
@@ -3507,7 +3596,8 @@ void updateGPSScreen() {
   bool moving = gpsValid && gpsSpeed >= 0.6;
   int cKey = moving ? (int)(gpsCourse / 3) : -1;
   int sKey = (gpsValid ? 1 : 0) + (gps.time.isValid() ? gps.time.second() * 2 : 0) + (moving ? (int)gpsCourse * 1000 : 0)
-           + gpsLinkState() * 200 + gpsInView * 7 + (int)gpsAnt[0] * 3;
+           + gpsLinkState() * 200 + gpsInView * 7 + (int)gpsAnt[0] * 3
+           + gpsDiagFixPct * 13 + (int)gpsDiagBad * 17 + (int)gpsDiagLost * 19 + (int)(gpsDiagLag / 50) * 23;
   if (cKey != lastCourse || moving) {
     lastCourse = cKey;
     paintRegion(G.compass.x, G.compass.y, G.compass.w, G.compass.h, [&](LovyanGFX &g, int bx, int by) { gpsDrawCompass(g, bx, by, G.compass.w, G.compass.h); });
