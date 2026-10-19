@@ -391,6 +391,7 @@ void loadCsvFileList();
 
 // Home WiFi (station) credentials — saved on SD
 String homeSSID = "";
+String wifiFailReason = "";   // why the last Wi-Fi scan or join failed (shown on screen)
 String homePass = "";
 bool homeWifiConnected = false;
 bool userWantsHomeWifi = false;  // only connect when user taps CONNECT/JOIN
@@ -2176,6 +2177,7 @@ void stopWardriving() {
   if (wdNewRecord) recBestSession = total;
   saveRecords();
   if (!homeWifiConnected) WiFi.mode(WIFI_OFF);
+  bleShutdown();                 // give its memory back so Wi-Fi can start again for scans and uploads
   beep(1, 90);
   Serial.printf("Wardrive stopped: %lu unique, %lu rows\n", (unsigned long)total, (unsigned long)rowsLogged);
 }
@@ -3900,7 +3902,10 @@ void wifiPaintList() {
       g.setFont(F_S);
       g.setTextDatum(MC_DATUM);
       g.setTextColor(UI_DIM, TFT_BLACK);
-      g.drawString("No networks found - scan again", bx + tft.width() / 2, by + (bot - top) / 2);
+      if (wifiFailReason.length()) {
+        g.setTextColor(C_BAD, TFT_BLACK);
+        g.drawString(wifiFailReason.c_str(), bx + tft.width() / 2, by + (bot - top) / 2);
+      } else g.drawString("No networks found - scan again", bx + tft.width() / 2, by + (bot - top) / 2);
     });
     return;
   }
@@ -4280,11 +4285,17 @@ void doWifiScan() {
   wifiScanCount = 0;
   wifiScanScroll = 0; wifiScrollPx = 0;
   showWdgStatusScreen("Scanning WiFi...", "Please wait", "", -1, 0, "WIFI");
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect(true);
-  delay(80);
+  wifiFailReason = "";
+  if (wifiStaUp()) {
+    WiFi.disconnect(false);
+    delay(80);
+  }
   int n = WiFi.scanNetworks(false, true);
-  if (n < 0) n = 0;
+  if (n < 0) {
+    if (!wifiFailReason.length()) wifiFailReason = "Scan failed (code " + String(n) + ")";
+    Serial.printf("Wi-Fi scan failed: %d, heap %u\n", n, (unsigned)ESP.getFreeHeap());
+    n = 0;
+  }
   if (n > 20) n = 20;
   for (int i = 0; i < n; i++) {
     wifiScanSSID[i] = WiFi.SSID(i);
@@ -5365,6 +5376,53 @@ bool saveHomeWifi() {
   return cardOk || nvsOk;
 }
 
+// ---------- Station Wi-Fi bring-up (scan, join, uploads) ----------
+// WiFi.mode(WIFI_OFF) fully de-initialises the Wi-Fi driver, so every scan or join starts it
+// again from scratch. After a run the Bluetooth stack used to stay up and keep its memory,
+// and the restart could then fail, leaving scans empty and joins failing. Bluetooth is now
+// shut down after each run, and this helper also restores full power, both bands and the country.
+static volatile int wifiLastDiscReason = 0;
+static bool wifiEvtHooked = false;
+
+void bleShutdown() {
+  if (!pBLEScan) return;
+  pBLEScan->stop();
+  pBLEScan->clearResults();
+  BLEDevice::deinit(false);
+  pBLEScan = nullptr;
+  Serial.println("Bluetooth stack shut down");
+}
+
+bool wifiStaUp() {
+  if (!wardriveActive) bleShutdown();
+  if (!wifiEvtHooked) {
+    WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) {
+      wifiLastDiscReason = info.wifi_sta_disconnected.reason;
+    }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+    wifiEvtHooked = true;
+  }
+  if (!WiFi.mode(WIFI_STA)) {
+    wifiFailReason = "Wi-Fi did not start (" + String(ESP.getFreeHeap() / 1024) + " KB free)";
+    Serial.println(wifiFailReason);
+    return false;
+  }
+#if defined(WIFI_BAND_MODE_AUTO)
+  WiFi.setBandMode(WIFI_BAND_MODE_AUTO);              // 2.4 and 5 GHz home networks
+#endif
+  esp_wifi_set_country_code(SKIRF_WIFI_COUNTRY, false);
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);                 // the portal hotspot runs at 8.5 dBm; joining needs full power
+  return true;
+}
+
+static const char* wifiReasonText(int r) {
+  switch (r) {
+    case 201: return "Network not found";
+    case 2: case 15: case 202: case 204: case 205: case 23: return "Password rejected";
+    case 0: return "No answer from the router";
+    default: return nullptr;
+  }
+}
+
 bool tryConnectHomeWifi(uint32_t timeoutMs) {
   if (homeSSID.length() == 0) {
     Serial.println("WiFi: no SSID saved");
@@ -5391,7 +5449,9 @@ bool tryConnectHomeWifi(uint32_t timeoutMs) {
   WiFi.persistent(false);
   WiFi.disconnect(true, true);
   delay(100);
-  WiFi.mode(WIFI_STA);   // STA only — more reliable than AP_STA for join
+  wifiFailReason = "";
+  wifiLastDiscReason = 0;
+  if (!wifiStaUp()) return false;   // STA only — more reliable than AP_STA for join
   delay(100);
   WiFi.setSleep(false);
 
@@ -5433,7 +5493,13 @@ bool tryConnectHomeWifi(uint32_t timeoutMs) {
 
   homeWifiConnected = false;
   homeWifiIP = "";
-  Serial.printf("WiFi FAILED status=%d SSID='%s'\n", (int)WiFi.status(), homeSSID.c_str());
+  {
+    const char* why = wifiReasonText(wifiLastDiscReason);
+    if (!why && WiFi.status() == WL_NO_SSID_AVAIL) why = wifiReasonText(201);
+    wifiFailReason = why ? String(why) : ("Router refused (code " + String(wifiLastDiscReason) + ")");
+  }
+  Serial.printf("WiFi FAILED status=%d reason=%d SSID='%s' heap=%u: %s\n", (int)WiFi.status(), wifiLastDiscReason,
+                homeSSID.c_str(), (unsigned)ESP.getFreeHeap(), wifiFailReason.c_str());
   WiFi.disconnect(true);
   return false;
 }
@@ -6185,8 +6251,8 @@ void runUploadJob() {
   String items = "", note = "";
   int ok = 0, bad = 0;
   if (!tryConnectHomeWifi(20000)) {
-    note = "Could not join \"" + homeSSID + "\". Check the network name and password in Setup.";
-    showWdgStatusScreen("No Wi-Fi", homeSSID.c_str(), "Check the portal's Setup tab");
+    note = "Could not join \"" + homeSSID + "\": " + wifiFailReason;
+    showWdgStatusScreen("No Wi-Fi", homeSSID.c_str(), wifiFailReason.c_str());
     bad = n;
   } else {
     for (int i = 0; i < n; i++) {
@@ -6854,9 +6920,7 @@ void loop() {
             currentScreen = WIFI_SCREEN;
             drawWifiScreen();
           } else {
-            char st[24];
-            snprintf(st, sizeof(st), "status=%d", (int)WiFi.status());
-            showWdgStatusScreen("Failed", st, "Check SSID/pass", -1, 0, "WIFI");
+            showWdgStatusScreen("Connect failed", homeSSID.c_str(), wifiFailReason.c_str(), -1, 0, "WIFI");
             delay(2800);
             drawWifiPassScreen();
           }
@@ -7011,9 +7075,7 @@ void loop() {
               beep(2, 40);
               delay(2500);
             } else {
-              char st[28];
-              snprintf(st, sizeof(st), "WiFi status=%d", (int)WiFi.status());
-              showWdgStatusScreen("Connect failed", st, "SSID/pass / range / 2.4GHz", -1, 0, "WIFI");
+              showWdgStatusScreen("Connect failed", homeSSID.c_str(), wifiFailReason.c_str(), -1, 0, "WIFI");
               beep(1, 80);
               delay(2800);
             }

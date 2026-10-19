@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- Wi-Fi scans came back empty, joining the home network failed and uploads failed after a run: the Bluetooth stack stayed up after the run and kept its memory, while Wi-Fi is fully shut down when idle and has to start again for every scan or join. Bluetooth is now shut down when a run ends, and every scan, join and upload starts the Wi-Fi with full power (the portal hotspot runs at 8.5 dBm), 2.4 + 5 GHz and the Wi-Fi country set.
+- Wi-Fi screens say why a scan or join failed (network not found, password rejected, no answer, Wi-Fi did not start) instead of a status number; the portal's upload report includes the reason too.
 - Saved Wi-Fi password and API keys could be lost: the portal said "saved" even when the card write failed (the card shares the display's SPI bus, and the portal screen is animating), and opening the hotspot re-read the file over the keys in memory. Keys are now written to the card and read back, and also kept in the board's NVS; loading falls back to NVS, the portal reports a real failure, and opening the hotspot no longer overwrites keys in memory.
 - Web portal: a network name or WiGLE API name being typed is no longer wiped by the page's 8-second refresh before you can save it.
 - Web portal: the hotspot stays open while the page is in use, instead of closing 60 seconds after it started.
