@@ -6,6 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- Saved Wi-Fi password and API keys could be lost: the portal said "saved" even when the card write failed (the card shares the display's SPI bus, and the portal screen is animating), and opening the hotspot re-read the file over the keys in memory. Keys are now written to the card and read back, and also kept in the board's NVS; loading falls back to NVS, the portal reports a real failure, and opening the hotspot no longer overwrites keys in memory.
 - Web portal: a network name or WiGLE API name being typed is no longer wiped by the page's 8-second refresh before you can save it.
 - Web portal: the hotspot stays open while the page is in use, instead of closing 60 seconds after it started.
 - Web portal: uploads no longer cut the phone off without a result. The board now runs the upload itself (hotspot off, join home Wi-Fi, progress on its screen, Wi-Fi off again) and the portal's Upload tab shows the result next time. Saving home Wi-Fi no longer drops the hotspot to test it.

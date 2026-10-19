@@ -1799,7 +1799,7 @@ static const char WD_CSV_HEADER[] =
   "MAC,SSID,AuthMode,FirstSeen,Channel,Frequency,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,RCOIs,MfgrId,Type\n";
 
 static bool wdWriteOnce(const uint8_t* data, size_t len, const char* mode) {
-  tft.endWrite();                  // the card shares the display's SPI bus: make sure the display let go of it
+  tft.waitDMA(); tft.endWrite();   // the card shares the display's SPI bus: make sure the display let go of it
   File f = openLogFile(wardriveFile.c_str(), mode);
   if (!f) return false;
   size_t w = f.write(data, len);
@@ -5287,34 +5287,82 @@ void applyOrientation(int rot) {
 
 
 // ---------- Home WiFi config ----------
-void loadHomeWifi() {
-  if (!logFs().exists(WIFI_CFG_FILE)) return;
-  File f = logFs().open(WIFI_CFG_FILE, FILE_READ);
-  if (!f) return;
-  StaticJsonDocument<512> doc;
-  if (deserializeJson(doc, f)) { f.close(); return; }
-  f.close();
+// Wi-Fi password and API keys live in two places: a JSON file on the log storage (so they
+// survive re-flashing the firmware) and the board's NVS (so they survive a card problem or a
+// card swap). Saving writes both and reads the card copy back; loading takes the card copy
+// and falls back to NVS.
+static void sdBusFree() {   // the card shares the display's SPI bus
+  tft.waitDMA();
+  tft.endWrite();
+}
+
+static bool keysFromJson(JsonDocument &doc) {
   homeSSID = doc["ssid"] | "";
   homePass = doc["pass"] | "";
   wdgApiKey = doc["wdg_key"] | "";
   wigleApiName = doc["wigle_name"] | "";
   wigleApiToken = doc["wigle_token"] | "";
-  Serial.printf("Home WiFi loaded: %s\n", homeSSID.c_str());
+  return true;
 }
 
-void saveHomeWifi() {
-  if (logFs().exists(WIFI_CFG_FILE)) logFs().remove(WIFI_CFG_FILE);
-  File f = logFs().open(WIFI_CFG_FILE, FILE_WRITE);
-  if (!f) return;
-  StaticJsonDocument<512> doc;
+static bool keysAnySet() { return homeSSID.length() || wdgApiKey.length() || wigleApiName.length() || wigleApiToken.length(); }
+
+void loadHomeWifi() {
+  sdBusFree();
+  bool fromCard = false;
+  if (logFs().exists(WIFI_CFG_FILE)) {
+    File f = logFs().open(WIFI_CFG_FILE, FILE_READ);
+    if (f) {
+      JsonDocument doc;
+      DeserializationError err = deserializeJson(doc, f);
+      f.close();
+      if (!err) {
+        String s = doc["ssid"] | "", k = doc["wdg_key"] | "", n = doc["wigle_name"] | "", tk = doc["wigle_token"] | "";
+        if (s.length() || k.length() || n.length() || tk.length()) { keysFromJson(doc); fromCard = true; }
+      } else Serial.printf("Keys file unreadable: %s\n", err.c_str());
+    }
+  }
+  if (!fromCard) {
+    Preferences p;
+    if (p.begin("skirfkeys", true)) {
+      if (p.isKey("ssid")) {
+        homeSSID = p.getString("ssid", ""); homePass = p.getString("pass", "");
+        wdgApiKey = p.getString("wdg", ""); wigleApiName = p.getString("wname", ""); wigleApiToken = p.getString("wtok", "");
+      }
+      p.end();
+    }
+  }
+  Serial.printf("Keys loaded from %s: wifi '%s', WiGLE %s, WDGWars %s\n", fromCard ? "card" : "board",
+                homeSSID.c_str(), wigleApiToken.length() ? "yes" : "no", wdgApiKey.length() ? "yes" : "no");
+}
+
+// Returns true when the keys are stored somewhere that survives a restart.
+bool saveHomeWifi() {
+  bool nvsOk = false, cardOk = false;
+  Preferences p;
+  if (p.begin("skirfkeys", false)) {
+    p.putString("ssid", homeSSID); p.putString("pass", homePass);
+    p.putString("wdg", wdgApiKey); p.putString("wname", wigleApiName); p.putString("wtok", wigleApiToken);
+    nvsOk = p.getString("ssid", "~") == homeSSID && p.getString("wtok", "~") == wigleApiToken && p.getString("wdg", "~") == wdgApiKey;
+    p.end();
+  }
+  JsonDocument doc;
   doc["ssid"] = homeSSID;
   doc["pass"] = homePass;
   doc["wdg_key"] = wdgApiKey;
   doc["wigle_name"] = wigleApiName;
   doc["wigle_token"] = wigleApiToken;
-  serializeJson(doc, f);
-  f.close();
-  Serial.println("Home WiFi / WDG key saved");
+  String js; serializeJson(doc, js);
+  for (int attempt = 0; attempt < 2 && !cardOk; attempt++) {
+    sdBusFree();
+    if (attempt) { openLogFS(); delay(20); }
+    File f = logFs().open(WIFI_CFG_FILE, FILE_WRITE);      // "w" truncates: no remove-then-create gap
+    if (f) { f.print(js); f.close(); }
+    File r = logFs().open(WIFI_CFG_FILE, FILE_READ);
+    if (r) { cardOk = r.readString() == js; r.close(); }
+  }
+  Serial.printf("Keys saved: card %s, board %s\n", cardOk ? "OK" : "FAILED", nvsOk ? "OK" : "FAILED");
+  return cardOk || nvsOk;
 }
 
 bool tryConnectHomeWifi(uint32_t timeoutMs) {
@@ -5951,7 +5999,7 @@ void handleDelete() {
 
 // ---------- Web portal (one page + JSON API; tools/web/portal.html) ----------
 unsigned long portalLastHitMs = 0;          // last request from a browser: keeps the hotspot open while the page is in use
-static inline void portalHit() { portalLastHitMs = millis(); }
+static inline void portalHit() { portalLastHitMs = millis(); sdBusFree(); }   // handlers touch the card: free the shared SPI bus first
 
 // Uploads started from the portal run on the board: the hotspot has to close so the radio
 // can join the home network, which would cut the browser off mid-request.
@@ -6065,7 +6113,7 @@ void handleApiWifi() {
   // password is treated as an open network.
   if (server.hasArg("pass") && server.arg("pass").length()) { homePass = server.arg("pass"); homePass.trim(); }
   else if (homeSSID != oldSSID) homePass = "";
-  saveHomeWifi();
+  if (!saveHomeWifi()) { webJson(500, false, "Could not store it - check the card"); return; }
   webJson(200, true, homeSSID.length() ? "Home Wi-Fi saved" : "Home Wi-Fi cleared");
 }
 
@@ -6073,7 +6121,7 @@ void handleApiWigle() {
   portalHit();
   if (server.hasArg("name")) { wigleApiName = server.arg("name"); wigleApiName.trim(); }
   if (server.hasArg("token") && server.arg("token").length()) { wigleApiToken = server.arg("token"); wigleApiToken.trim(); }
-  saveHomeWifi();
+  if (!saveHomeWifi()) { webJson(500, false, "Could not store it - check the card"); return; }
   webJson(200, true, "WiGLE keys saved");
 }
 
@@ -6083,7 +6131,7 @@ void handleApiWdg() {
   String k = server.arg("key"); k.trim();
   if (k.length() < 8) { webJson(400, false, "That key looks too short"); return; }
   wdgApiKey = k;
-  saveHomeWifi();
+  if (!saveHomeWifi()) { webJson(500, false, "Could not store it - check the card"); return; }
   webJson(200, true, "WDGWars key saved");
 }
 
@@ -6252,8 +6300,9 @@ void startPortalAP() {
   homeWifiIP = "";
 
   Serial.println("Portal AP ready — open http://192.168.4.1");
-  // SoftAP only here — home STA is manual via Settings > WIFI
-  loadHomeWifi();
+  // SoftAP only here — home STA is manual via Settings > WIFI.
+  // Keys in memory are current; only load them if none are (e.g. a card fitted after boot).
+  if (!keysAnySet()) loadHomeWifi();
   userWantsHomeWifi = false;
 }
 
