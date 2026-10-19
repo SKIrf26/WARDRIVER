@@ -6,6 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- Web portal: a network name or WiGLE API name being typed is no longer wiped by the page's 8-second refresh before you can save it.
 - Web portal: the hotspot stays open while the page is in use, instead of closing 60 seconds after it started.
 - Web portal: uploads no longer cut the phone off without a result. The board now runs the upload itself (hotspot off, join home Wi-Fi, progress on its screen, Wi-Fi off again) and the portal's Upload tab shows the result next time. Saving home Wi-Fi no longer drops the hotspot to test it.
 - Logs: a run's CSV file and header are now written before the Wi-Fi and Bluetooth radios start, while internal memory is free. A failed write remounts the microSD card and tries again; if the card still refuses, the run carries on in the board's flash under the same file name instead of losing rows. The GPS buffer moved to PSRAM to leave internal memory for the card. The run screen shows LOG NOT SAVING (red) if nothing can be written, and the Serial Monitor prints the free memory when a write fails.

@@ -299,7 +299,7 @@ function render(){
   stat('#sWifi',!!S.wifi.ssid,S.wifi.ssid?'saved':'not set');stat('#sWigle',S.wigle.name&&S.wigle.token,S.wigle.token?'saved':'not set');
   stat('#sWdg',S.wdg.key,S.wdg.key?(S.wdg.user?esc(S.wdg.user):'saved'):'not set');
   $('#hSsid').textContent=S.wifi.ssid||'not set';
-  for(const[id,v]of[['#ssid',S.wifi.ssid],['#wname',S.wigle.name]])if(document.activeElement!=$(id))$(id).value=v;
+  for(const[id,v]of[['#ssid',S.wifi.ssid],['#wname',S.wigle.name]]){const el=$(id);if(!el.dataset.dirty&&document.activeElement!=el)el.value=v}
   $('#pass').placeholder=S.wifi.pass?'saved – leave blank to keep':'open network: leave blank';
   $('#wtok').placeholder=S.wigle.token?'saved – leave blank to keep':'not set';$('#wkey').placeholder=S.wdg.key?'saved – leave blank to keep':'not set';
   if(S.last&&S.last.items&&S.last.items.length){$('#repCard').hidden=false;$('#repWhen').textContent=S.last.when||'';
@@ -327,8 +327,9 @@ $('#dDel').onclick=async()=>{const n=sel.size;if(!await ask('Delete '+n+' log'+(
 $('#delAll').onclick=async()=>{if(!files.length){toast('No logs to delete');return}
   if(!await ask('Delete all '+files.length+' logs?','Every wardrive log on the board is removed for good. Your Wi-Fi and API keys stay.','Delete all','bad'))return;
   try{const j=await post('/api/delete',[['all','1']]);sel.clear();toast(j.msg);load(true)}catch(e){toast(e.message,1)}};
+$$('form[data-api] input').forEach(i=>i.addEventListener('input',()=>i.dataset.dirty=1));
 $$('form[data-api]').forEach(f=>f.onsubmit=async e=>{e.preventDefault();const b=f.querySelector('.btn');b.disabled=true;
-  try{const j=await post(f.dataset.api,new FormData(f));f.querySelectorAll('input[type=password]').forEach(i=>i.value='');toast(j.msg);await load()}catch(err){toast(err.message,1)}b.disabled=false});
+  try{const j=await post(f.dataset.api,new FormData(f));f.querySelectorAll('input').forEach(i=>{delete i.dataset.dirty;if(i.type=='password')i.value=''});toast(j.msg);await load()}catch(err){toast(err.message,1)}b.disabled=false});
 $('#upGo').onclick=async()=>{
   const list=scope=='sel'?[...sel]:[],cnt=scope=='sel'?sel.size:files.length,to={wigle:'WiGLE',wdg:'WDGWars',both:'WiGLE and WDGWars'}[tgt];
   if(!await ask('Upload '+cnt+' log'+(cnt>1?'s':'')+' to '+to+'?','This page will lose its connection: the board leaves the hotspot to join “'+esc(S.wifi.ssid)+'”. Watch its screen for progress.','Upload'))return;
