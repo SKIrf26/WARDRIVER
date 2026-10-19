@@ -202,6 +202,8 @@ static SemaphoreHandle_t gpsPortMux = nullptr;
 #endif
 // live link health for the GPS screen (5 s window)
 unsigned long gpsWinStart = 0, gpsWinPos = 0, gpsWinFix = 0, gpsWinFail0 = 0, gpsWinLost0 = 0, gpsLoopMaxMs = 0, gpsLoopLastMs = 0;
+int gpsNavModeSent = -1;   // CASIC $PCAS11 dynamic model last sent (-1 = not yet on this port)
+double gpsRawLat = 0, gpsRawLng = 0; unsigned long gpsMovedMs = 0;   // last time the module reported a different position
 int gpsDiagFixPct = -1; unsigned long gpsDiagBad = 0, gpsDiagLost = 0, gpsDiagLag = 0;   // GGA/RMC sentences whose talker (BD, GQ, ...) TinyGPS++ would have dropped
 char gpsTxt[40] = "";
 char gpsAnt[8] = "";        // "OK", "OPEN", "SHORT" or "" (module does not report it)
@@ -1443,6 +1445,7 @@ void gpsOpenPort(int rx, int tx, uint32_t baud) {
   gpsSerial.onReceiveError([](hardwareSerial_error_t) { gpsUartErrs++; });   // FIFO / buffer overflow, framing
   gpsSerial.begin(baud, SERIAL_8N1, rx, tx);
   gpsRingTail = gpsRingHead;
+  gpsNavModeSent = -1;
 #ifndef SKIRF_HOST_PREVIEW
   xSemaphoreGive(gpsPortMux);
 #endif
@@ -1538,6 +1541,7 @@ void readGPS() {
   if (gps.location.isValid() && gps.location.age() < 4000) {
     gpsLat = gps.location.lat();
     gpsLng = gps.location.lng();
+    if (gpsLat != gpsRawLat || gpsLng != gpsRawLng) { gpsRawLat = gpsLat; gpsRawLng = gpsLng; gpsMovedMs = millis(); }
     gpsValid = true;
   } else if (!gps.location.isValid() || gps.location.age() > 8000) {
     gpsValid = false;
@@ -1559,12 +1563,12 @@ void readGPS() {
   if (millis() - gpsDiagMs > 10000) {
     gpsDiagMs = millis();
     if (gpsAnt[0]) Serial.printf("GPS antenna: %s\n", gpsAnt);
-    Serial.printf("GPS: RX=%d TX=%d baud=%lu last byte %lus ago chars=%lu ok=%lu bad=%lu relabelled=%lu used=%d view=%d fix=%d hdop=%.1f | 5s: fix %d%% bad %lu lost %lu lag %lums\n",
+    Serial.printf("GPS: RX=%d TX=%d baud=%lu last byte %lus ago chars=%lu ok=%lu bad=%lu relabelled=%lu used=%d view=%d fix=%d hdop=%.1f | 5s: fix %d%% bad %lu lost %lu lag %lums moved %lus ago\n",
                   gpsPinsSwapped ? gpsTxPin : gpsRxPin, gpsPinsSwapped ? gpsRxPin : gpsTxPin,
                   (unsigned long)gpsBaudNow, (millis() - gpsLastByteMs) / 1000, (unsigned long)gps.charsProcessed(),
                   (unsigned long)gps.passedChecksum(), (unsigned long)gps.failedChecksum(), gpsRelabelCount,
                   gpsSats, gpsInView, (int)gpsValid, gps.hdop.isValid() ? gps.hdop.hdop() : 0.0,
-                  gpsDiagFixPct, gpsDiagBad, gpsDiagLost, gpsDiagLag);
+                  gpsDiagFixPct, gpsDiagBad, gpsDiagLost, gpsDiagLag, gpsMovedMs ? (millis() - gpsMovedMs) / 1000 : 0);
   }
   if (gps.course.isValid()) gpsCourse = gps.course.deg();
   if (gps.speed.isValid()) gpsSpeed = gps.speed.mph();
@@ -1576,6 +1580,19 @@ void readGPS() {
   if (!gpsLinkLocked && gps.passedChecksum() > gpsPassAtOpen + 2) {
     gpsLinkLocked = true;
     Serial.printf("GPS link locked: RX=%d TX=%d baud=%lu\n", gpsPinsSwapped ? gpsTxPin : gpsRxPin, gpsPinsSwapped ? gpsRxPin : gpsTxPin, (unsigned long)gpsBaudNow);
+  }
+  // Dynamic model for CASIC modules (ATGM336H and other AT6558 boards). Many ship in vehicle
+  // mode, which holds the position still at walking speed, so the fix updates in bursts.
+  // Portable on the GPS page, walking or vehicle during a run to match the ride. Not saved in
+  // the module (no $PCAS00), and modules of other makes ignore the sentence.
+  if (gpsLinkLocked && gpsTxPin >= 0) {
+    int want = wardriveActive ? (wdTransport == WD_XPORT_WALK ? 2 : 3) : 0;
+    if (want != gpsNavModeSent) {
+      char cmd[16]; snprintf(cmd, sizeof(cmd), "PCAS11,%d", want);
+      gpsSendNmea(cmd);
+      gpsNavModeSent = want;
+      Serial.printf("GPS: dynamic model $%s (%s)\n", cmd, want == 0 ? "portable" : (want == 2 ? "walking" : "vehicle"));
+    }
   }
   if (!gpsLinkLocked && !gpsValid && (millis() - gpsLastHuntMs > 8000)) {
     gpsLastHuntMs = millis();
@@ -3440,8 +3457,8 @@ void gpsCardValue(int i, char* v, size_t n, uint16_t &col) {
       break;
     case 2: if (gpsValid) snprintf(v, n, "%.0f ft", gpsAlt * 3.28084); else snprintf(v, n, "---"); break;
     case 3: if (gpsValid) snprintf(v, n, "%.1f mph", gpsSpeed); else snprintf(v, n, "---"); break;
-    case 4: if (gpsValid) snprintf(v, n, "%.5f", gpsLat); else snprintf(v, n, "---"); break;
-    default: if (gpsValid) snprintf(v, n, "%.5f", gpsLng); else snprintf(v, n, "---"); break;
+    case 4: if (gpsValid) snprintf(v, n, "%.6f", gpsLat); else snprintf(v, n, "---"); break;
+    default: if (gpsValid) snprintf(v, n, "%.6f", gpsLng); else snprintf(v, n, "---"); break;
   }
 }
 
@@ -3559,8 +3576,14 @@ void gpsDrawSig(LovyanGFX &g, int bx, int by, int w, int h) {
     if (!gpsValid && gpsAnt[0] && strcmp(gpsAnt, "OK")) { g.setTextColor(C_BAD, TFT_BLACK); snprintf(b, sizeof(b), "Antenna %s", gpsAnt); }
     else if (!gpsValid && gpsAnt[0]) snprintf(b, sizeof(b), "Antenna OK");
     else if (gpsValid && gpsDiagFixPct >= 0) {   // link health: bad sentences, lost bytes, longest loop gap
-      if (gpsDiagBad || gpsDiagLost || gpsDiagLag > 1000) g.setTextColor(C_NEW, TFT_BLACK);
-      snprintf(b, sizeof(b), "Bad %lu Lost %lu %lums", gpsDiagBad, gpsDiagLost, gpsDiagLag);
+      if (gpsDiagBad || gpsDiagLost || gpsDiagLag > 1000) {
+        g.setTextColor(C_NEW, TFT_BLACK);
+        snprintf(b, sizeof(b), "Bad %lu Lost %lu %lums", gpsDiagBad, gpsDiagLost, gpsDiagLag);
+      } else {   // how long since the module last reported a new position
+        unsigned long ago = gpsMovedMs ? (millis() - gpsMovedMs) / 100 : 0;
+        if (ago >= 30) g.setTextColor(C_NEW, TFT_BLACK);
+        snprintf(b, sizeof(b), "Moved %lu.%lu sec ago", ago / 10, ago % 10);
+      }
     }
     else if (gps.time.isValid()) snprintf(b, sizeof(b), "%02d:%02d:%02d UTC", gps.time.hour(), gps.time.minute(), gps.time.second());
     else snprintf(b, sizeof(b), "--:--:-- UTC");
@@ -3597,7 +3620,8 @@ void updateGPSScreen() {
   int cKey = moving ? (int)(gpsCourse / 3) : -1;
   int sKey = (gpsValid ? 1 : 0) + (gps.time.isValid() ? gps.time.second() * 2 : 0) + (moving ? (int)gpsCourse * 1000 : 0)
            + gpsLinkState() * 200 + gpsInView * 7 + (int)gpsAnt[0] * 3
-           + gpsDiagFixPct * 13 + (int)gpsDiagBad * 17 + (int)gpsDiagLost * 19 + (int)(gpsDiagLag / 50) * 23;
+           + gpsDiagFixPct * 13 + (int)gpsDiagBad * 17 + (int)gpsDiagLost * 19 + (int)(gpsDiagLag / 50) * 23
+           + (gpsMovedMs ? (int)((millis() - gpsMovedMs) / 400) * 29 : 0);
   if (cKey != lastCourse || moving) {
     lastCourse = cKey;
     paintRegion(G.compass.x, G.compass.y, G.compass.w, G.compass.h, [&](LovyanGFX &g, int bx, int by) { gpsDrawCompass(g, bx, by, G.compass.w, G.compass.h); });
