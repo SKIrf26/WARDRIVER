@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- GPS: position and speed now keep updating with GPS + BeiDou modules such as the ATGM336H. These modules label a position sentence "BD" (or GP / GN) depending on which satellites carry the fix, and the GPS library threw away every BD sentence without a word, so the position froze, the speed stayed 0 and the fix kept dropping out. The board now relabels those sentences before reading them. The Serial Monitor's "GPS:" line counts them as "relabelled".
+- GPS screen: modules that send no satellites-in-view list (only GGA and RMC) now show the satellites used, with signal bars, instead of 0.
 - GPS: the board no longer sends set-up commands to the module; it only listens. Beta 1 sent commands for several module makers (rate, sentences, constellations), and on the NM-CYD-C5 GPS module that stopped it talking after a few seconds. The module's factory output (1 Hz, 9600 baud, GGA, GSA, GSV and RMC) is all the wardriver needs. The old behaviour can be turned back on in the source (SKIRF_GPS_CONFIGURE).
 - GPS: the baud hunt also runs when bytes arrive but no sentence can be read, and now tries 9600, 38400 and 115200 baud with normal and swapped RX/TX. Before, a module at another baud was never found.
 
