@@ -305,7 +305,7 @@ function render(){
   if(S.last&&S.last.items&&S.last.items.length){$('#repCard').hidden=false;$('#repWhen').textContent=S.last.when||'';
     const tg=(k,v)=>v?`<span class="tag ${v=='OK'?'ok':v=='SKIP'?'skip':'bad'}" title="${esc(v)}">${k} ${v=='OK'||v=='SKIP'?v:'FAIL'}</span>`:'';
     $('#rep').innerHTML=(S.last.note?`<div><span class="f" style="color:var(--warn);white-space:normal">${esc(S.last.note)}</span></div>`:'')+
-      S.last.items.map(i=>`<div><span class="f">${esc(info(i.f).t)}</span>${tg('WiGLE',i.wigle)}${tg('WDG',i.wdg)}</div>`).join('')}
+      S.last.items.map(i=>{const bad=[['WiGLE',i.wigle],['WDGWars',i.wdg]].filter(x=>x[1]&&x[1]!='OK'&&x[1]!='SKIP');return`<div style="flex-wrap:wrap"><span class="f">${esc(info(i.f).t)}</span>${tg('WiGLE',i.wigle)}${tg('WDG',i.wdg)}${bad.map(x=>`<span style="flex-basis:100%;font-size:13px;color:var(--bad)">${x[0]}: ${esc(x[1])}</span>`).join('')}</div>`}).join('')}
   $('#foot').textContent=location.host;upCheck();
 }
 async function load(first){

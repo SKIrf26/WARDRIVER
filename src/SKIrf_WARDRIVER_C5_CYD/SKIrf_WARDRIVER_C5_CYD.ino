@@ -391,6 +391,7 @@ void loadCsvFileList();
 
 // Home WiFi (station) credentials — saved on SD
 String homeSSID = "";
+String lastWdgError = "", lastWigleError = "";   // reason the last upload of a file failed
 String wifiFailReason = "";   // why the last Wi-Fi scan or join failed (shown on screen)
 String homePass = "";
 bool homeWifiConnected = false;
@@ -4234,10 +4235,22 @@ void showWdgStatusScreen(const char* line1, const char* line2 = "", const char* 
   if (line2 && line2[0]) tft.drawString(line2, w / 2, ty + 20);
   tft.setTextColor(UI_MUTE, fill);
   if (line3 && line3[0]) {
-    String l3 = line3;
-    int maxc = (cw - 16) / 6;
-    if ((int)l3.length() > maxc) l3 = l3.substring(0, maxc - 1) + "~";
-    tft.drawString(l3, w / 2, ty + 34);
+    // word-wrap (error reasons can be long): up to 3 lines, fewer when a progress bar needs the room
+    int maxLines = (progress >= 0 && progressMax > 0 && land) ? 2 : 3;
+    String rest = line3;
+    for (int ln = 0; ln < maxLines && rest.length(); ln++) {
+      String cut = rest;
+      if (tft.textWidth(cut) > cw - 16) {
+        int fit = 0;
+        for (int i = 1; i <= (int)rest.length(); i++) if (tft.textWidth(rest.substring(0, i)) <= cw - 16) fit = i; else break;
+        int sp = rest.lastIndexOf(' ', fit);
+        int brk = (sp > fit / 2) ? sp : fit;
+        cut = rest.substring(0, brk);
+        if (ln == maxLines - 1) cut = rest.substring(0, max(1, fit - 1)) + "~";
+      }
+      tft.drawString(cut, w / 2, ty + 34 + ln * 13);
+      rest = rest.substring(min((int)rest.length(), (int)cut.length())); rest.trim();
+    }
   }
   if (progress >= 0 && progressMax > 0) {
     int barW = cw - 32, barH = 10;
@@ -4595,28 +4608,32 @@ void filesUploadSelected(bool doWigle, bool doWdg) {
     }
   }
   int ok = 0, fail = 0, skip = 0, done = 0;
+  String firstErr = "";
   for (int i = 0; i < fileBrowserCount; i++) {
     if (!fileSelected[i]) continue;
     done++;
     String path = "/" + fileNames[i];
     showWdgStatusScreen("Uploading...", fileNames[i].c_str(), "", done - 1, max(1, fileBrowserCount), "FILES");
     if (doWigle) {
-      if (wigleApiName.length() < 1) fail++;
-      else if (uploadOneCsvToWigle(path) == 1) ok++; else fail++;
+      if (wigleApiName.length() < 1) { fail++; if (!firstErr.length()) firstErr = "WiGLE: no API name saved"; }
+      else if (uploadOneCsvToWigle(path) == 1) ok++;
+      else { fail++; if (!firstErr.length()) firstErr = "WiGLE: " + lastWigleError; }
     }
     if (doWdg) {
-      if (wdgApiKey.length() < 8) fail++;
+      if (wdgApiKey.length() < 8) { fail++; if (!firstErr.length()) firstErr = "WDG: no API key saved"; }
       else {
         int r = uploadOneCsvToWdg(path);
-        if (r == 1) ok++; else if (r == 2) skip++; else fail++;
+        if (r == 1) ok++; else if (r == 2) skip++;
+        else { fail++; if (!firstErr.length()) firstErr = "WDG: " + lastWdgError; }
       }
     }
   }
   if (done == 0) { filesShowMsg("Nothing selected", "Tap files to select"); return; }
   char res[48];
   snprintf(res, sizeof(res), "OK:%d Skip:%d Fail:%d", ok, skip, fail);
-  showWdgStatusScreen("Upload done", res, "Returning...", done, done, "FILES");
-  delay(5000);
+  showWdgStatusScreen("Upload done", res, firstErr.length() ? firstErr.c_str() : "Returning...", done, done, "FILES");
+  if (firstErr.length()) Serial.println("First upload error: " + firstErr);
+  delay(firstErr.length() ? 9000 : 5000);
   loadCsvFileList();
   drawFilesScreen();
 }
@@ -4667,6 +4684,7 @@ void doWdgUploadFromDevice() {
   }
 
   int ok = 0, skip = 0, fail = 0;
+  String wdgFirstErr = "";
   for (int i = 0; i < n; i++) {
     char line2[40];
     snprintf(line2, sizeof(line2), "File %d of %d", i + 1, n);
@@ -4674,14 +4692,14 @@ void doWdgUploadFromDevice() {
     int r = uploadOneCsvToWdg("/" + names[i]);
     if (r == 1) ok++;
     else if (r == 2) skip++;
-    else fail++;
+    else { fail++; if (!wdgFirstErr.length()) wdgFirstErr = lastWdgError; }
     // show progress after file completes
     showWdgStatusScreen("WDGWars upload", line2, names[i].c_str(), i + 1, n);
   }
 
   char result[64];
   snprintf(result, sizeof(result), "OK:%d  Skip:%d  Fail:%d", ok, skip, fail);
-  showWdgStatusScreen("Upload finished", result, "Read results — returning soon", n, n);
+  showWdgStatusScreen("Upload finished", result, wdgFirstErr.length() ? wdgFirstErr.c_str() : "Returning soon", n, n);
   beep(ok > 0 ? 2 : 1, 60);
   delay(7000);
   drawSettingsScreen();
@@ -4712,10 +4730,7 @@ bool fetchWdgGameStats(String &errOut) {
   }
 
   SKIRF_SECURE_CLIENT client;
-  client.setInsecure();
-  client.setTimeout(25000);
-  if (!client.connect("wdgwars.pl", 443)) {
-    errOut = "TLS to wdgwars.pl failed";
+  if (!tlsOpen(client, "wdgwars.pl", errOut)) {
     wdgMeStatus = errOut;
     return false;
   }
@@ -5714,7 +5729,48 @@ String urlEncode(const String& s) {
 
 // ---------- WDGWars CSV upload ----------
 // POST https://wdgwars.pl/api/upload-csv  Header X-API-Key  multipart field "file"
-String lastWdgError = "";
+
+// Open a TLS connection for an upload, with a readable reason when it fails
+// (no Wi-Fi, DNS, TLS handshake), one retry, and the free memory in the message.
+bool tlsOpen(SKIRF_SECURE_CLIENT &client, const char* host, String &err) {
+  for (int attempt = 0; attempt < 2; attempt++) {
+    if (WiFi.status() != WL_CONNECTED) { err = "Wi-Fi dropped"; return false; }
+    IPAddress ip;
+    if (!WiFi.hostByName(host, ip)) {
+      err = String("Can't look up ") + host + " (no internet?)";
+    } else {
+      client.setInsecure();
+      client.setHandshakeTimeout(30);
+      client.setTimeout(25000);
+      if (client.connect(host, 443)) return true;
+      char eb[96] = "";
+      client.lastError(eb, sizeof(eb));
+      err = String("Secure connection failed: ") + (eb[0] ? eb : "no reply") + " (" +
+            String(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024) + " KB free)";
+      client.stop();
+    }
+    Serial.printf("%s attempt %d: %s\n", host, attempt + 1, err.c_str());
+    delay(1200);
+  }
+  return false;
+}
+
+// Short reason from an HTTP reply: "401 Unauthorized - <server message>"
+String httpReason(const String &statusLine, const String &body) {
+  String s = statusLine;
+  int sp = s.indexOf(' ');
+  if (sp > 0) s = s.substring(sp + 1);                  // drop "HTTP/1.1"
+  if (!s.length()) s = "No reply from server";
+  String msg;
+  int k = body.indexOf("\"message\"");
+  if (k < 0) k = body.indexOf("\"error\"");
+  if (k >= 0) {
+    int q1 = body.indexOf('"', body.indexOf(':', k) + 1), q2 = q1 >= 0 ? body.indexOf('"', q1 + 1) : -1;
+    if (q1 >= 0 && q2 > q1) msg = body.substring(q1 + 1, q2);
+  }
+  if (msg.length()) s += " - " + msg.substring(0, 80);
+  return s;
+}
 
 int uploadOneCsvToWdg(const String& path) {
   lastWdgError = "";
@@ -5736,14 +5792,9 @@ int uploadOneCsvToWdg(const String& path) {
   size_t totalLen = head.length() + fsize + tail.length();
 
   SKIRF_SECURE_CLIENT client;
-  client.setInsecure();
-  client.setTimeout(25000);
-
   Serial.printf("WDG connecting... keylen=%d file=%s size=%u\n", wdgApiKey.length(), fname.c_str(), (unsigned)fsize);
-
-  if (!client.connect("wdgwars.pl", 443)) {
+  if (!tlsOpen(client, "wdgwars.pl", lastWdgError)) {
     f.close();
-    lastWdgError = "TLS connect to wdgwars.pl:443 failed";
     Serial.println(lastWdgError);
     return -5;
   }
@@ -5785,7 +5836,7 @@ int uploadOneCsvToWdg(const String& path) {
   while (millis() - t0 < 2000) {
     while (client.available()) {
       char c = client.read();
-      if (bodyPeek.length() < 200) bodyPeek += c;
+      if (bodyPeek.length() < 600) bodyPeek += c;
     }
     if (!client.connected() && !client.available()) break;
     delay(10);
@@ -5804,11 +5855,7 @@ int uploadOneCsvToWdg(const String& path) {
     lastWdgError = "Already on WDGWars (409 Conflict) — not an auth error";
     return 2;  // soft OK
   }
-  lastWdgError = statusLine.length() ? statusLine : "No HTTP response";
-  if (bodyPeek.length()) {
-    bodyPeek.replace("\n", " ");
-    lastWdgError += " | " + bodyPeek.substring(0, 120);
-  }
+  lastWdgError = httpReason(statusLine, bodyPeek);
   return 0;
 }
 
@@ -5840,7 +5887,6 @@ String secretInput(const char* name, bool saved, bool password) {
 
 
 // ---------- Wigle CSV upload ----------
-String lastWigleError = "";
 
 String wigleBasicAuthHeader() {
   String userpass = wigleApiName + ":" + wigleApiToken;
@@ -5883,12 +5929,9 @@ int uploadOneCsvToWigle(const String& path) {
   if (auth.length() < 10) { f.close(); lastWigleError = "Base64 auth failed"; return -4; }
 
   SKIRF_SECURE_CLIENT client;
-  client.setInsecure();
-  client.setTimeout(25000);
   Serial.printf("Wigle connect %s size=%u\n", fname.c_str(), (unsigned)fsize);
-  if (!client.connect("api.wigle.net", 443)) {
+  if (!tlsOpen(client, "api.wigle.net", lastWigleError)) {
     f.close();
-    lastWigleError = "TLS connect api.wigle.net failed";
     return -5;
   }
   client.print("POST /api/v2/file/upload HTTP/1.1\r\n");
@@ -5921,7 +5964,7 @@ int uploadOneCsvToWigle(const String& path) {
   while (millis() - t0 < 3000) {
     while (client.available()) {
       char c = client.read();
-      if (bodyPeek.length() < 240) bodyPeek += c;
+      if (bodyPeek.length() < 600) bodyPeek += c;
     }
     if (!client.connected() && !client.available()) break;
     delay(10);
@@ -5929,9 +5972,9 @@ int uploadOneCsvToWigle(const String& path) {
   client.stop();
   Serial.println("Wigle status: " + statusLine);
   Serial.println("Wigle body: " + bodyPeek);
-  if (statusLine.indexOf("200") >= 0) { lastWigleError = "OK"; return 1; }
-  lastWigleError = statusLine.length() ? statusLine : "No HTTP response";
-  if (bodyPeek.length()) { bodyPeek.replace("\n", " "); lastWigleError += " | " + bodyPeek.substring(0, 100); }
+  // WiGLE answers 200 with {"success":false,"message":...} for some refusals
+  if (statusLine.indexOf(" 200") >= 0 && bodyPeek.indexOf("\"success\":false") < 0) { lastWigleError = "OK"; return 1; }
+  lastWigleError = httpReason(statusLine, bodyPeek);
   return 0;
 }
 
@@ -5968,16 +6011,18 @@ void doWigleUploadFromDevice() {
     delay(2000); drawSettingsScreen(); return;
   }
   int ok = 0, fail = 0;
+  String wigFirstErr = "";
   for (int i = 0; i < n; i++) {
     char line2[40];
     snprintf(line2, sizeof(line2), "File %d of %d", i + 1, n);
     showWdgStatusScreen("Wigle upload", line2, names[i].c_str(), i, n);
-    if (uploadOneCsvToWigle("/" + names[i]) == 1) ok++; else fail++;
+    if (uploadOneCsvToWigle("/" + names[i]) == 1) ok++;
+    else { fail++; if (!wigFirstErr.length()) wigFirstErr = lastWigleError; }
     showWdgStatusScreen("Wigle upload", line2, names[i].c_str(), i + 1, n);
   }
   char result[64];
   snprintf(result, sizeof(result), "OK:%d  Fail:%d", ok, fail);
-  showWdgStatusScreen("Wigle finished", result, "Read results — returning soon", n, n);
+  showWdgStatusScreen("Wigle finished", result, wigFirstErr.length() ? wigFirstErr.c_str() : "Returning soon", n, n);
   beep(ok > 0 ? 2 : 1, 60);
   delay(7000);
   drawSettingsScreen();
@@ -6248,7 +6293,7 @@ void runUploadJob() {
   int n = upJobN;
   Serial.printf("Portal upload job: %d file(s) to %s\n", n, upJobTarget.c_str());
   showWdgStatusScreen("Joining Wi-Fi...", homeSSID.c_str(), "Please wait");
-  String items = "", note = "";
+  String items = "", note = "", firstErr = "";
   int ok = 0, bad = 0;
   if (!tryConnectHomeWifi(20000)) {
     note = "Could not join \"" + homeSSID + "\": " + wifiFailReason;
@@ -6264,13 +6309,13 @@ void runUploadJob() {
         showWdgStatusScreen("WiGLE upload", l2, upJobFiles[i].c_str(), i, n);
         int r = uploadOneCsvToWigle(path);
         it += ",\"wigle\":" + jsonStr(r == 1 ? String("OK") : lastWigleError);
-        if (r != 1) fileOk = false;
+        if (r != 1) { fileOk = false; if (!firstErr.length()) firstErr = "WiGLE: " + lastWigleError; }
       }
       if (doWdg) {
         showWdgStatusScreen("WDGWars upload", l2, upJobFiles[i].c_str(), i, n);
         int r = uploadOneCsvToWdg(path);
         it += ",\"wdg\":" + jsonStr(r == 1 ? String("OK") : (r == 2 ? String("SKIP") : lastWdgError));
-        if (r != 1 && r != 2) fileOk = false;
+        if (r != 1 && r != 2) { fileOk = false; if (!firstErr.length()) firstErr = "WDG: " + lastWdgError; }
       }
       it += "}";
       if (items.length()) items += ",";
@@ -6285,9 +6330,10 @@ void runUploadJob() {
              gps.time.hour(), gps.time.minute());
   upLastReport = "{\"when\":" + jsonStr(when) + ",\"note\":" + jsonStr(note) + ",\"items\":[" + items + "]}";
   char res[40]; snprintf(res, sizeof(res), "OK %d   Failed %d", ok, bad);
-  showWdgStatusScreen("Upload finished", res, "Details: web portal > Upload", n, n);
+  showWdgStatusScreen("Upload finished", res, firstErr.length() ? firstErr.c_str() : "Details: web portal > Upload", n, n);
+  if (firstErr.length()) Serial.println("First upload error: " + firstErr);
   beep(ok > 0 && bad == 0 ? 2 : 1, 60);
-  delay(5000);
+  delay(firstErr.length() ? 9000 : 5000);
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
   homeWifiConnected = false; homeWifiIP = ""; userWantsHomeWifi = false;
