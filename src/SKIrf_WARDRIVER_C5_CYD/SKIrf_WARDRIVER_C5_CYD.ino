@@ -3670,6 +3670,7 @@ void gpsDrawSig(LovyanGFX &g, int bx, int by, int w, int h) {
     int ls = gpsLinkState();
     if (ls == 2) { g.setTextColor(C_BAD, TFT_BLACK); snprintf(b, sizeof(b), "No data on RX %d", gpsPinsSwapped ? gpsTxPin : gpsRxPin); }
     else if (ls == 3) { g.setTextColor(C_BAD, TFT_BLACK); snprintf(b, sizeof(b), "Unreadable: baud?"); }
+    else if (ls == 1 && WiFi.getMode() != WIFI_OFF) { g.setTextColor(C_WARN, TFT_BLACK); snprintf(b, sizeof(b), "Wi-Fi on: slows the fix"); }
     else if (ls == 1) {
       if (gpsInView) snprintf(b, sizeof(b), "%d in view, no fix", gpsInView);
       else if (gpsSats) snprintf(b, sizeof(b), "%d used, no fix yet", gpsSats);   // module sends no GSV list
@@ -3731,7 +3732,7 @@ void updateGPSScreen() {
   int sKey = (gpsValid ? 1 : 0) + (gps.time.isValid() ? gps.time.second() * 2 : 0) + (moving ? (int)gpsCourse * 1000 : 0)
            + gpsLinkState() * 200 + gpsInView * 7 + (int)gpsAnt[0] * 3
            + gpsDiagFixPct * 13 + (int)gpsDiagBad * 17 + (int)gpsDiagLost * 19 + (int)(gpsDiagLag / 50) * 23
-           + (gpsMovedMs ? (int)((millis() - gpsMovedMs) / 400) * 29 : 0);
+           + (gpsMovedMs ? (int)((millis() - gpsMovedMs) / 400) * 29 : 0) + (WiFi.getMode() != WIFI_OFF ? 31 : 0);
   if (cKey != lastCourse || moving) {
     lastCourse = cKey;
     paintRegion(G.compass.x, G.compass.y, G.compass.w, G.compass.h, [&](LovyanGFX &g, int bx, int by) { gpsDrawCompass(g, bx, by, G.compass.w, G.compass.h); });
@@ -6918,9 +6919,15 @@ void loop() {
     // Wi-Fi off whenever nothing uses it: the ESP32-C5's radio sits next to the GPS antenna,
     // and an idle-but-on radio is still noise the GPS has to dig through for its first fix.
     {
+      // This includes a home-network connection: it stays up only while a Wi-Fi screen is open
+      // (plus 20 s); uploads join the network again by themselves when they need it.
+      static unsigned long wifiNeededMs = 0;
       bool wifiScreen = (currentScreen == WIFI_SCREEN || currentScreen == WIFI_SCAN_SCREEN || currentScreen == WIFI_PASS_SCREEN || currentScreen == GAME_STATS_SCREEN);
-      if (!wardriveActive && !apActive && !homeWifiConnected && !wifiScreen && WiFi.getMode() != WIFI_OFF) {
+      if (wifiScreen || wardriveActive || apActive) wifiNeededMs = millis();
+      if (!wardriveActive && !apActive && !wifiScreen && millis() - wifiNeededMs > 20000 && WiFi.getMode() != WIFI_OFF) {
+        if (homeWifiConnected) WiFi.disconnect(true);
         WiFi.mode(WIFI_OFF);
+        homeWifiConnected = false; homeWifiIP = ""; userWantsHomeWifi = false;
         Serial.println("Wi-Fi radio off (idle)");
       }
     }
