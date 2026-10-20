@@ -1846,64 +1846,102 @@ File openLogFile(const char* path, const char* mode) {
   return logFs().open(path, mode);
 }
 
-// ---------- WiGLE 1.6 CSV writer (batched) ----------
-static char wdLogBuf[4096];
-static size_t wdLogLen = 0;
+// ---------- WiGLE 1.6 CSV writer ----------
+// The run's file is opened ONCE, before Wi-Fi and Bluetooth start, and stays open for the
+// whole run: opening a file on the card needs internal RAM, and with both radios running
+// there is not enough of it, so re-opening the file for every batch made the writes fail
+// mid-run while a card test (radios off) passed. Rows wait in a PSRAM buffer (512 KB, about
+// 4,700 rows) and are only dropped from it once they are on the card; at the end of a run
+// the radios are switched off first and whatever is left is written then.
+static char wdLogFallback[4096];
+static char* wdLogBuf = nullptr;
+static size_t wdLogCap = 0, wdLogLen = 0;
+static File wdLogFile;
+static bool wdLogOpen = false;
 
-bool wdLogFailed = false;
+bool wdLogFailed = false;          // the last write did not reach the log (shown on the run screen)
 String wdLogSummary = "";          // run report: "152 rows saved to microSD"
-uint16_t wdLogSummaryCol = 0;          // last write to the log did not reach the card (shown on the run screen)
+uint16_t wdLogSummaryCol = 0;
 static const char WD_CSV_HEADER[] =
   "WigleWifi-1.6,appRelease=" SKIRF_APP_RELEASE ",model=NM-CYD-C5,release=" SKIRF_APP_RELEASE
   ",device=SKIrf-Wardriver,display=ST7789,board=ESP32-C5,brand=SKIrf,star=Sol,body=3,subBody=0\n"
   "MAC,SSID,AuthMode,FirstSeen,Channel,Frequency,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,RCOIs,MfgrId,Type\n";
 
-static bool wdWriteOnce(const uint8_t* data, size_t len, const char* mode) {
-  tft.waitDMA(); tft.endWrite();   // the card shares the display's SPI bus: make sure the display let go of it
-  File f = openLogFile(wardriveFile.c_str(), mode);
-  if (!f) return false;
-  size_t w = f.write(data, len);
-  f.close();
-  return w == len;
+static void wdLogBufInit() {
+  if (wdLogBuf) return;
+#ifndef SKIRF_HOST_PREVIEW
+  wdLogBuf = (char*)heap_caps_malloc(512 * 1024, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (wdLogBuf) wdLogCap = 512 * 1024;
+#endif
+  if (!wdLogBuf) { wdLogBuf = wdLogFallback; wdLogCap = sizeof(wdLogFallback); }
 }
 
-// Write to the run's log. On a failure: remount the card and try again; if the card still
-// refuses, carry on in the board's flash (same file name) so the run is not lost.
-static bool wdWriteLog(const uint8_t* data, size_t len, const char* mode) {
-  if (wardriveFile == "") return false;
-  if (wdWriteOnce(data, len, mode)) { wdLogFailed = false; return true; }
-  Serial.printf("Log write failed on %s (free heap %u, largest block %u) - remounting\n",
-                logUseLittleFS ? "flash" : "SD", (unsigned)ESP.getFreeHeap(), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA));
-  if (!logUseLittleFS) {
-    SD.end(); sdReady = false; sdStepDown(); delay(20);
-    if (tryMountSd() && wdWriteOnce(data, len, mode)) { wdLogFailed = false; Serial.println("Log write OK after SD remount"); return true; }
-    SD.end(); sdReady = false; sdStepDown(); delay(20);         // one more, slower still
-    if (tryMountSd() && wdWriteOnce(data, len, mode)) { wdLogFailed = false; Serial.println("Log write OK after slower SD remount"); return true; }
-    if (logStoreMode == 0 && LittleFS.begin(true)) {
-      logUseLittleFS = true;
-      bool fresh = !LittleFS.exists(wardriveFile);
-      if (fresh && strcmp(mode, FILE_WRITE) != 0) wdWriteOnce((const uint8_t*)WD_CSV_HEADER, strlen(WD_CSV_HEADER), FILE_WRITE);
-      if (wdWriteOnce(data, len, mode)) {
-        wdLogFailed = false;
-        Serial.printf("SD keeps failing - this run continues in the board's flash: %s\n", wardriveFile.c_str());
-        return true;
-      }
+static bool wdLogOpenFile(const char* mode) {
+  tft.waitDMA(); tft.endWrite();   // the card shares the display's SPI bus
+  if (wdLogOpen) { wdLogFile.close(); wdLogOpen = false; }
+  wdLogFile = openLogFile(wardriveFile.c_str(), mode);
+  wdLogOpen = (bool)wdLogFile;
+  return wdLogOpen;
+}
+
+// Create the run's file with its header and keep it open. Called before the radios start.
+bool wdLogBegin() {
+  wdLogBufInit();
+  wdLogLen = 0;
+  if (!wdLogOpenFile(FILE_WRITE)) { wdLogFailed = true; return false; }
+  size_t hl = strlen(WD_CSV_HEADER);
+  bool ok = wdLogFile.write((const uint8_t*)WD_CSV_HEADER, hl) == hl;
+  wdLogFile.flush();
+  wdLogFailed = !ok;
+  return ok;
+}
+
+// Write what is buffered. Rows leave the buffer only once they are written.
+void wdLogFlush() {
+  if (!wdLogLen || wardriveFile == "") return;
+  if (!wdLogOpen && !wdLogOpenFile(FILE_APPEND)) {
+    if (!wdLogFailed) Serial.printf("Log: cannot open %s (internal RAM free %u)\n", wardriveFile.c_str(), (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    wdLogFailed = true;
+    return;
+  }
+  tft.waitDMA(); tft.endWrite();
+  size_t w = wdLogFile.write((const uint8_t*)wdLogBuf, wdLogLen);
+  wdLogFile.flush();
+  if (w == wdLogLen) { wdLogLen = 0; wdLogFailed = false; return; }
+  // Partial or failed write: drop only what reached the file, keep the rest, reopen next time.
+  if (w > 0 && w < wdLogLen) { memmove(wdLogBuf, wdLogBuf + w, wdLogLen - w); wdLogLen -= w; }
+  Serial.printf("Log: write failed (%u of %u bytes, internal RAM free %u)\n", (unsigned)w, (unsigned)wdLogLen, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+  wdLogFile.close(); wdLogOpen = false;
+  wdLogFailed = true;
+}
+
+// End of run (radios already off): write the rest, with a remount and, in Auto mode only,
+// the board's flash as the last resort.
+void wdLogFinish() {
+  wdLogFlush();
+  if (wdLogLen) {
+    Serial.println("Log: remounting the card for the final write");
+    if (wdLogOpen) { wdLogFile.close(); wdLogOpen = false; }
+    if (!logUseLittleFS) { SD.end(); sdReady = false; sdStepDown(); delay(30); tryMountSd(); }
+    wdLogFlush();
+  }
+  if (wdLogLen && !logUseLittleFS && logStoreMode == 0 && LittleFS.begin(true)) {
+    Serial.println("Log: card still refuses - saving this run in the board's flash");
+    logUseLittleFS = true;
+    if (wdLogOpenFile(FILE_WRITE)) {
+      wdLogFile.write((const uint8_t*)WD_CSV_HEADER, strlen(WD_CSV_HEADER));
+      wdLogFile.flush();
+      wdLogFlush();
     }
   }
-  wdLogFailed = true;
-  return false;
-}
-
-void wdLogFlush() {
-  if (!wdLogLen) return;
-  if (wdWriteLog((const uint8_t*)wdLogBuf, wdLogLen, FILE_APPEND)) wdLogLen = 0;
-  else if (wdLogLen > sizeof(wdLogBuf) - 512) wdLogLen = 0;   // keep the rows for the next try unless the buffer is full
+  if (wdLogOpen) { wdLogFile.close(); wdLogOpen = false; }
 }
 
 static void wdLogAppend(const char* line) {
+  wdLogBufInit();
   size_t n = strlen(line);
-  if (wdLogLen + n >= sizeof(wdLogBuf)) wdLogFlush();
-  if (n >= sizeof(wdLogBuf)) return;
+  if (wdLogLen + n >= wdLogCap) wdLogFlush();
+  if (wdLogLen + n >= wdLogCap) { wdLogFailed = true; return; }   // buffer full and the card refuses
   memcpy(wdLogBuf + wdLogLen, line, n);
   wdLogLen += n;
 }
@@ -2176,7 +2214,7 @@ void startWardriving() {
 
   // Create the log (with its header) before the radios start: the card is set up while
   // internal memory is still free, and a card problem shows at once.
-  if (wdWriteLog((const uint8_t*)WD_CSV_HEADER, strlen(WD_CSV_HEADER), FILE_WRITE))
+  if (wdLogBegin())
     Serial.printf("Wardrive started: %s (%s)\n", wardriveFile.c_str(), logUseLittleFS ? "LittleFS" : "SD");
   else
     Serial.println("CSV not created - UI will still show live counts");
@@ -2225,8 +2263,11 @@ void stopWardriving() {
   if (scanPhase == 1) esp_wifi_scan_stop();
   if (scanPhase == 3 && pBLEScan) pBLEScan->stop();
   scanPhase = 0;
-  wdLogFlush();
   wardriveActive = false;
+  // radios off first: their memory is what the card needs for the final write
+  if (!homeWifiConnected) WiFi.mode(WIFI_OFF);
+  bleShutdown();
+  wdLogFinish();
   {   // where did this run's log end up? (shown on the run report)
     String shortName = wardriveFile; if (shortName.startsWith("/")) shortName = shortName.substring(1);
     if (rowsLogged == 0) {
@@ -2234,7 +2275,7 @@ void stopWardriving() {
       if (wardriveFile.length() && logFs().exists(wardriveFile)) logFs().remove(wardriveFile);   // header only: nothing to upload
       wdLogSummary = gpsValid ? "No log: nothing was found" : "No log: the GPS had no fix";
       wdLogSummaryCol = C_WARN;
-    } else if (wdLogFailed) {
+    } else if (wdLogFailed || wdLogLen) {
       wdLogSummary = "Log NOT saved - check the card"; wdLogSummaryCol = C_BAD;
     } else {
       wdLogSummary = String(rowsLogged) + " rows saved to " + (logUseLittleFS ? "board flash" : "microSD");
@@ -2252,8 +2293,6 @@ void stopWardriving() {
   wdNewRecord = (total > recBestSession && total > 0);
   if (wdNewRecord) recBestSession = total;
   saveRecords();
-  if (!homeWifiConnected) WiFi.mode(WIFI_OFF);
-  bleShutdown();                 // give its memory back so Wi-Fi can start again for scans and uploads
   beep(1, 90);
   Serial.printf("Wardrive stopped: %lu unique, %lu rows\n", (unsigned long)total, (unsigned long)rowsLogged);
 }
@@ -5214,9 +5253,13 @@ void saveLogStoreMode() {
   Preferences p;
   if (p.begin("skirfst", false)) { p.putUChar("mode", logStoreMode); p.end(); }
 }
+// No saved choice (first start, or after flashing, which clears it): with a card fitted the
+// default is Card only, so logs never end up in the board's flash without being asked to.
 void loadLogStoreMode() {
   Preferences p;
-  if (p.begin("skirfst", true)) { logStoreMode = p.getUChar("mode", 0); p.end(); }
+  bool have = false;
+  if (p.begin("skirfst", true)) { have = p.isKey("mode"); logStoreMode = p.getUChar("mode", 0); p.end(); }
+  if (!have) logStoreMode = tryMountSd() ? 1 : 0;
   if (logStoreMode > 2) logStoreMode = 0;
 }
 
@@ -5285,7 +5328,7 @@ void drawStorageScreen() {
   tft.drawString("SAVE LOGS TO", G.modeLabelX, G.modeLabelY + 12);
   static const char* labs[3] = { "AUTO", "CARD", "FLASH" };
   for (int i = 0; i < 3; i++) drawThemedButton(G.mode[i].x, G.mode[i].y, G.mode[i].w, G.mode[i].h, labs[i], logStoreMode == i ? C_GREEN : getBtnFill(), TFT_WHITE);
-  static const char* hints[3] = { "Card, flash if it fails", "Card only", "Board flash only" };
+  static const char* hints[3] = { "Card, flash if it fails", "Card only - never flash", "Board flash only" };
   tft.setFont(F_XS); tft.setTextDatum(TC_DATUM); tft.setTextColor(UI_MUTE, TFT_BLACK);
   tft.drawString(hints[logStoreMode], G.hintCx, G.hintY);
   drawThemedButton(G.test.x, G.test.y, G.test.w, G.test.h, "TEST CARD", getBtnFill(), TFT_WHITE);
