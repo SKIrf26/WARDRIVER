@@ -33,16 +33,20 @@ D. It says WAITING FOR A GPS FIX (or WAITING FOR MORE SATELLITES) and never star
                   can take 1 to 5 minutes; a car roof or dashboard is better than inside a building). 0 in view after
                   a few minutes outdoors: the antenna is not connected, faulty, or shielded.
        NO DATA    nothing arrives on the RX pin (the line under the compass says which). Check the wiring: the
-                  module's TX goes to the board's RX (IO4 by default), and power and ground must be connected. Try the
-                  presets in Settings > GPS pins (4 / 5, 4 / -1, 3 / -1, 8 / 9), tap SAVE (the board restarts) and
-                  look again.
+                  module's TX goes to the board's RX (IO4 by default), and power and ground must be connected. On many
+                  boards IO4 receives nothing: wire the module's TX to IO8 (RX to IO9) and pick the 8 / 9 preset in
+                  Settings > GPS pins, tap SAVE (the board restarts) and look again. Flashing resets the pins.
        BAD BAUD   bytes arrive but none can be read. The board tries 9600, 38400 and 115200 baud (and swapped RX/TX)
                   by itself, about every 8 seconds; if it stays on BAD BAUD, check for a loose wire or noise.
    - The Serial Monitor (115200 baud) prints a "GPS:" line every 10 seconds with the pins, baud, characters received,
      good and bad sentences, satellites used and in view. Include it when you report a GPS problem.
    - Keep the GPS antenna a little away from the board and its display (a few centimetres helps).
    - For the fastest first fix, tap SKIP on the web portal at start-up: its Wi-Fi hotspot is the noisiest thing near
-     the antenna while the GPS is searching.
+     the antenna while the GPS is searching. "Wi-Fi on: slows the fix" under the heading means the radio is on:
+     leave the Wi-Fi screens and it turns off after 20 seconds.
+   - Position or speed frozen, or coming in bursts: under HDOP the GPS screen shows Fix % and "Moved N sec ago".
+     A low Fix % means the module is losing the fix. "Moved" climbing while you walk: connect the module's RX to
+     the board's TX pin so the board can set its walking mode.
    - A module that stopped talking after an older release sent it set-up commands stays silent until it loses power:
      unplug the USB cable for 10 seconds (and remove any power bank) so the module restarts.
    - In Pro mode, a strict GPS accuracy setting (HDOP 2, 6 sats) can hold back a run: set it to Off.
@@ -57,25 +61,34 @@ E. It finds few or no networks
      country code (SKIRF_WIFI_COUNTRY).
 
 F. Logs are not saved to the microSD card
-   - Settings shows "SD card" or "Flash" next to Logs: Flash means the card was not found.
-   - Fit the card BEFORE switching the board on. Use FAT32 (cards over 32 GB are often exFAT, which the board cannot
-     read). Try another card.
-   - With no card the board logs to its own flash (about 1.5 MB). The web portal and the Logs screen show those files
-     too.
+   - Open Settings > Storage. A red dot means the card was not found: fit it BEFORE switching the board on, use FAT32
+     (cards over 32 GB are often exFAT, which the board cannot read), try another card.
+   - Tap TEST CARD: it writes, reads back and compares 64 KB, then writes again with Wi-Fi and Bluetooth on, the way a
+     run does. It says PASS or what failed.
+   - The run report says where each log went ("... rows saved to microSD", "... to board flash", "Log NOT saved").
+     The run journal (portal > Setup > Download run journal) has a line per run with any write error.
+   - Logs in the board's flash still show in the Logs list (tagged FLASH) and the portal, and upload normally.
+     Settings > Storage > MOVE TO CARD copies them to the card, checks every byte and only then removes them from
+     flash. The board never deletes a flash log by itself.
+   - KNOWN ISSUE in this beta: on some boards the card passes TEST CARD but logs written during a run do not stay on
+     it. Until it is fixed, set Settings > Storage > Save logs to: FLASH.
 
 G. I cannot reach the web portal
-   - The hotspot is only up for 60 seconds: at start-up, or after Settings > Web portal. The timer is on the screen.
+   - The hotspot is up for 60 seconds (at start-up, or after Settings > Web portal), and stays up while the page is
+     open. The timer is on the screen.
    - Join the Wi-Fi called SKIrf_WARDRIVER (no password), then open http://192.168.4.1 (not https).
    - Some phones leave networks without internet: turn off "auto-switch to mobile data" or "Wi-Fi assist" while
      connected, or use a laptop.
-   - While the board is connected to your home Wi-Fi, the same page is also on your home network at the address the
-     board shows (Settings > Wi-Fi).
+   - After you start an upload from the portal the board leaves the hotspot on purpose; the phone loses the page.
 
 H. Upload to WiGLE or WDGWars fails
-   - "No internet WiFi / Set home WiFi first": save your home network (Settings > Wi-Fi > NETWORKS, or the portal).
-     The board must be in range of it.
-   - "No API key": save your WDGWars API key in the web portal (WDGWARS API KEY).
-   - WiGLE needs the API Name and API Token from your WiGLE account page, not your login password.
+   - The board's last upload screen and the portal's Upload tab say why:
+       "Network not found" / "Password rejected" / "No answer from the router": check your home Wi-Fi (Setup tab,
+         or Settings > Wi-Fi > NETWORKS) and be in range of it.
+       "Can't look up ..."        the network has no internet.
+       "401" / "403"              wrong key. WiGLE needs the API Name and API Token from your WiGLE account page,
+                                  not your login password. WDGWars needs the API key from your profile.
+       "Secure connection failed" include the message (with the memory left) in a bug report.
    - Uploads are skipped while a run is recording. Stop the run first.
    - Big files take a while. Keep the board powered and in range until it says "Upload done".
 

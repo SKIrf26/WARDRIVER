@@ -4,7 +4,8 @@
 Does it transmit anything?
   It does not attack, jam or join other people's networks. To find networks it sends ordinary Wi-Fi probe requests
   (as every phone does), and on foot it uses active Bluetooth scanning. It runs its own open hotspot for 60 seconds
-  at start-up for the web portal, and joins YOUR home Wi-Fi when you upload.
+  at start-up for the web portal (longer while you use it), and joins YOUR home Wi-Fi when you upload, then turns
+  Wi-Fi off again.
 
 Which bands does it scan?
   Wi-Fi 2.4 GHz and 5 GHz, and Bluetooth LE, in every sweep. The counters show each one.
@@ -29,18 +30,21 @@ What is in a log?
   (walk/bike) followed by the date and time. They upload to WiGLE as they are, and open in any spreadsheet.
 
 Where are the logs?
-  On the microSD card, in its top folder. With no card, in the board's own flash. You can see them on the Logs screen
-  and in the web portal.
+  On the microSD card, in its top folder, or in the board's own flash, as set in Settings > Storage. The Logs screen
+  and the web portal show both; logs only in flash are tagged FLASH.
 
 How do I get the files onto my computer?
-  Take the card out and copy them, or use the web portal: download one file, or DOWNLOAD ALL as a .zip.
+  Take the card out and copy them, or use the web portal: download one file, select several and tap Zip, or
+  Download all (.zip).
 
 How do I upload to WiGLE?
   Make an account on wigle.net, open your Account page and copy the API Name and API Token (not your password). Save
-  them in the web portal (WIGLE API KEY). Save your home Wi-Fi. Then on the board: LOGS, select runs, WIGLE.
+  them in the web portal (Setup tab, WiGLE card). Save your home Wi-Fi. Then on the board: LOGS, select runs,
+  WIGLE, or in the portal: Upload tab, WiGLE, START UPLOAD.
 
 What is WDGWars?
-  A wardriving game and leaderboard at wdgwars.pl. Save your API key from your WDGWars profile in the web portal.
+  A wardriving game and leaderboard at wdgwars.pl. Save your API key from your WDGWars profile in the web portal
+  (Setup tab).
   LOGS > WDGW uploads runs, and Settings > WDGWars stats shows your totals.
 
 What is Pro mode?

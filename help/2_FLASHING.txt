@@ -40,7 +40,8 @@ If the computer cannot connect to the board
 What flashing changes
 ---------------------
 Writing this file replaces the software and RESETS THE SETTINGS SAVED IN THE BOARD: touch calibration, theme,
-brightness, orientation, GPS pins, Pro mode settings and your records (best run, lifetime total). Files on the
+brightness, orientation, GPS pins (set them again!), Save logs to, Pro mode settings and your records (best run,
+lifetime total). Files on the
 microSD card are not touched: your logs and the saved Wi-Fi and API keys stay. (Without a card, logs and keys kept
 in the board's flash may be lost when you flash.)
 

@@ -43,15 +43,26 @@ It is passive: it only receives the beacons and adverts that devices broadcast o
 <td><img src="docs/images/wardrive.png" width="190" alt="Wardrive"></td>
 <td><img src="docs/images/report.png" width="190" alt="Run report"></td>
 <td><img src="docs/images/logs.png" width="190" alt="Logs"></td>
-<td><img src="docs/images/portal.png" width="190" alt="Web portal"></td>
+<td><img src="docs/images/storage.png" width="190" alt="Storage"></td>
 </tr>
-<tr align="center"><td>Home</td><td>Wardrive</td><td>Run report</td><td>Logs</td><td>Web portal</td></tr>
+<tr align="center"><td>Home</td><td>Wardrive</td><td>Run report</td><td>Logs</td><td>Storage</td></tr>
+</table>
+
+### Web portal
+
+<table>
+<tr>
+<td><img src="docs/images/portal_logs.png" width="230" alt="Portal: Logs"></td>
+<td><img src="docs/images/portal_upload.png" width="230" alt="Portal: Upload"></td>
+<td><img src="docs/images/portal_setup.png" width="230" alt="Portal: Setup"></td>
+</tr>
+<tr align="center"><td>Logs</td><td>Upload</td><td>Setup</td></tr>
 </table>
 
 ## What you need
 
 - An **NM-CYD-C5** board and a USB-C **data** cable
-- A **GPS module** wired to the board's GPS connector (for example an ATGM336H; 9600 baud, NMEA; RX on IO4 and TX on IO5 by default, changeable on screen). Scanning starts once the GPS has a fix (4 satellites, 5 on foot); until then the screen says WAITING FOR A GPS FIX.
+- A **GPS module** wired to the board's GPS connector (for example an ATGM336H, GPS + BeiDou; 9600 baud, NMEA; RX on IO4 and TX on IO5 by default, changeable on screen). On many boards IO4 receives nothing: wire the module's TX to **IO8** and RX to **IO9** and pick the **8 / 9** preset in Settings > GPS pins. Flashing resets the pins. Scanning starts once the GPS has a fix (4 satellites, 5 on foot); until then the screen says WAITING FOR A GPS FIX.
 - A **microSD card**, FAT32, 32 GB or smaller (optional: without one, logs go to the board's flash, about 1.5 MB)
 - Optional: a small **passive buzzer** on IO26 for sounds
 
@@ -94,7 +105,8 @@ The illustrated user guide covers set-up, every screen, the settings, uploading,
 This is **Beta 1**, the first public release. Expect rough edges, and expect some behaviour to change.
 
 - A run scans and logs only while the GPS has a fix. Give the module a clear view of the sky; the first fix can take a few minutes.
-- The web portal's hotspot (`SKIrf_WARDRIVER`) is **open** (no password) for the 60 seconds it is up. Do not leave it running in a crowded place. See [SECURITY.md](SECURITY.md).
+- **Known issue:** on some boards a microSD card passes Settings > Storage > TEST CARD but logs written during a run do not stay on it. Until it is fixed, set **Save logs to: FLASH**; logs in flash show in the Logs list and the portal and upload normally.
+- The web portal's hotspot (`SKIrf_WARDRIVER`) is **open** (no password) while it is up (60 seconds, longer while the page is open). Do not leave it running in a crowded place. See [SECURITY.md](SECURITY.md).
 - The Wi-Fi country is set to US in the source (`SKIRF_WIFI_COUNTRY`), which allows 5 GHz channels 149-165. Change it and build your own if you are elsewhere.
 - Sound needs a small **passive** buzzer fitted to the board.
 

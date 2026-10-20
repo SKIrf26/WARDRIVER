@@ -57,11 +57,15 @@ THE USER GUIDE IN THREE PRINT FORMATS (docs folder)
 
 GOOD TO KNOW (THIS IS A BETA)
 -----------------------------
-  * This is the first public release. Expect rough edges.
+  * This is a beta (updated build of 20 Oct 2026). Expect rough edges.
   * A run only scans while the GPS has a fix. Outdoors with a clear view of the sky, the first fix can take a few
     minutes; the screen says WAITING FOR A GPS FIX until then.
-  * The web portal's hotspot SKIrf_WARDRIVER has no password and is up for 60 seconds at each start. Tap SKIP if
-    you do not need it.
+  * The web portal's hotspot SKIrf_WARDRIVER has no password and is up for 60 seconds at each start (longer while
+    the page is open). Tap SKIP if you do not need it.
+  * GPS on IO4 shows NO DATA on many boards: wire its TX to IO8, RX to IO9 and pick the 8 / 9 preset in
+    Settings > GPS pins. Flashing resets the pins.
+  * Known issue: on some boards logs written during a run do not stay on the microSD card even though
+    Settings > Storage > TEST CARD passes. Until it is fixed, set Save logs to: FLASH.
   * Sound needs a small PASSIVE buzzer or piezo on IO26 and GND. Without one the board is silent.
   * The board is updated over USB.
 
