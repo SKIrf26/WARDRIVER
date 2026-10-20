@@ -1859,6 +1859,30 @@ static size_t wdLogCap = 0, wdLogLen = 0;
 static File wdLogFile;
 static bool wdLogOpen = false;
 
+// Run statistics for the journal and Settings > Storage
+uint32_t wdLogWrites = 0, wdLogWriteFails = 0, wdLogBytes = 0;
+int wdLogLastErrno = 0;
+String wdLogLastErr = "";
+String wdLastRunLine = "";   // last journal line, shown in Settings > Storage
+
+// The card driver can't DMA from PSRAM: a big write straight from the PSRAM buffer makes it
+// allocate on-chip bounce buffers, which fail while Wi-Fi and Bluetooth hold the RAM. Copy
+// through a small static on-chip buffer instead, 512 bytes (one sector) at a time.
+static size_t wdLogWriteChunked(const uint8_t* src, size_t len) {
+  static uint8_t bounce[512];
+  size_t done = 0;
+  while (done < len) {
+    size_t n = len - done; if (n > sizeof(bounce)) n = sizeof(bounce);
+    memcpy(bounce, src + done, n);
+    errno = 0;
+    size_t w = wdLogFile.write(bounce, n);
+    if (w != n) { wdLogLastErrno = errno; done += w; break; }
+    done += n;
+  }
+  return done;
+}
+
+
 bool wdLogFailed = false;          // the last write did not reach the log (shown on the run screen)
 String wdLogSummary = "";          // run report: "152 rows saved to microSD"
 uint16_t wdLogSummaryCol = 0;
@@ -1888,11 +1912,13 @@ static bool wdLogOpenFile(const char* mode) {
 bool wdLogBegin() {
   wdLogBufInit();
   wdLogLen = 0;
-  if (!wdLogOpenFile(FILE_WRITE)) { wdLogFailed = true; return false; }
+  if (!wdLogOpenFile(FILE_WRITE)) { wdLogFailed = true; wdLogLastErr = "could not create the file"; return false; }
   size_t hl = strlen(WD_CSV_HEADER);
-  bool ok = wdLogFile.write((const uint8_t*)WD_CSV_HEADER, hl) == hl;
+  wdLogWrites = wdLogWriteFails = wdLogBytes = 0; wdLogLastErr = "";
+  bool ok = wdLogWriteChunked((const uint8_t*)WD_CSV_HEADER, hl) == hl;
   wdLogFile.flush();
   wdLogFailed = !ok;
+  if (!ok) wdLogLastErr = "header write failed errno " + String(wdLogLastErrno);
   return ok;
 }
 
@@ -1900,14 +1926,21 @@ bool wdLogBegin() {
 void wdLogFlush() {
   if (!wdLogLen || wardriveFile == "") return;
   if (!wdLogOpen && !wdLogOpenFile(FILE_APPEND)) {
+    wdLogWriteFails++;
+    wdLogLastErr = "reopen failed, RAM " + String(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024) + " KB";
     if (!wdLogFailed) Serial.printf("Log: cannot open %s (internal RAM free %u)\n", wardriveFile.c_str(), (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     wdLogFailed = true;
     return;
   }
   tft.waitDMA(); tft.endWrite();
-  size_t w = wdLogFile.write((const uint8_t*)wdLogBuf, wdLogLen);
+  size_t w = wdLogWriteChunked((const uint8_t*)wdLogBuf, wdLogLen);
   wdLogFile.flush();
+  wdLogWrites++;
+  wdLogBytes += w;
   if (w == wdLogLen) { wdLogLen = 0; wdLogFailed = false; return; }
+  wdLogWriteFails++;
+  wdLogLastErr = "write " + String((unsigned)w) + "/" + String((unsigned)wdLogLen) + " errno " + String(wdLogLastErrno) +
+                 ", RAM " + String(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024) + " KB";
   // Partial or failed write: drop only what reached the file, keep the rest, reopen next time.
   if (w > 0 && w < wdLogLen) { memmove(wdLogBuf, wdLogBuf + w, wdLogLen - w); wdLogLen -= w; }
   Serial.printf("Log: write failed (%u of %u bytes, internal RAM free %u)\n", (unsigned)w, (unsigned)wdLogLen, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
@@ -1929,7 +1962,7 @@ void wdLogFinish() {
     Serial.println("Log: card still refuses - saving this run in the board's flash");
     logUseLittleFS = true;
     if (wdLogOpenFile(FILE_WRITE)) {
-      wdLogFile.write((const uint8_t*)WD_CSV_HEADER, strlen(WD_CSV_HEADER));
+      wdLogWriteChunked((const uint8_t*)WD_CSV_HEADER, strlen(WD_CSV_HEADER));
       wdLogFile.flush();
       wdLogFlush();
     }
@@ -2282,6 +2315,16 @@ void stopWardriving() {
       wdLogSummaryCol = logUseLittleFS ? C_WARN : C_OK;
     }
     Serial.printf("Run log %s: %s\n", shortName.c_str(), wdLogSummary.c_str());
+    // journal on the card (radios are off now): what happened, for Settings > Storage and for support
+    char jl[200];
+    snprintf(jl, sizeof(jl), "%s,%s,mode=%s,rows=%lu,bytes=%lu,writes=%lu,fails=%lu,unsaved=%u,%s,%s\n",
+             shortName.c_str(), logUseLittleFS ? "flash" : "SD", logStoreMode == 1 ? "card" : (logStoreMode == 2 ? "flash" : "auto"),
+             (unsigned long)rowsLogged, (unsigned long)wdLogBytes, (unsigned long)wdLogWrites, (unsigned long)wdLogWriteFails,
+             (unsigned)wdLogLen, wdLogSummary.c_str(), wdLogLastErr.length() ? wdLogLastErr.c_str() : "no errors");
+    wdLastRunLine = String(jl); wdLastRunLine.trim();
+    tft.waitDMA(); tft.endWrite();
+    File jf = logFs().open("/SKIrf_runlog.txt", FILE_APPEND);
+    if (jf) { jf.print(jl); jf.close(); }
   }
 
   uint32_t total = sessionUnique();
@@ -5243,8 +5286,37 @@ void sdSelfTest() {
   unsigned long tr = millis() - t0;
   SD.remove(path);
   if (!ok) { sdTestText = "FAIL: read-back mismatch"; sdTestCol = C_BAD; return; }
+  // Phase 2: the way a run writes - Wi-Fi and Bluetooth on, file kept open, rows from the
+  // PSRAM buffer through the on-chip bounce buffer, flushed after each batch.
+  showWdgStatusScreen("Testing card...", "With Wi-Fi + Bluetooth on", "", 3, 4, "STORAGE");
+  WiFi.mode(WIFI_STA);
+  if (pBLEScan == nullptr) { BLEDevice::init(""); pBLEScan = BLEDevice::getScan(); }
+  delay(300);
+  unsigned ramRun = heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024;
+  wdLogBufInit();
+  String keepName = wardriveFile;
+  wardriveFile = "/skirf_runtest.csv";
+  bool ok2 = wdLogOpenFile(FILE_WRITE);
+  const char* row = "AA:BB:CC:DD:EE:FF,TestNetwork,[WPA2-PSK-CCMP][ESS],2026-10-20 12:00:00,6,2437,-70,30.000000,-97.000000,150.0,4.0,,,WIFI\n";
+  size_t rl = strlen(row);
+  for (int batch = 0; ok2 && batch < 8; batch++) {
+    size_t n = 0;
+    while (n + rl < 8192) { memcpy(wdLogBuf + n, row, rl); n += rl; }
+    tft.waitDMA(); tft.endWrite();
+    ok2 = wdLogWriteChunked((const uint8_t*)wdLogBuf, n) == n;
+    wdLogFile.flush();
+  }
+  if (wdLogOpen) { wdLogFile.close(); wdLogOpen = false; }
+  SD.remove(wardriveFile.c_str());
+  wardriveFile = keepName;
+  WiFi.mode(WIFI_OFF);
+  bleShutdown();
   char s[72];
-  snprintf(s, sizeof(s), "PASS %lu/%lu KB/s", 64000UL / max(1UL, tw), 64000UL / max(1UL, tr));
+  if (!ok2) {
+    snprintf(s, sizeof(s), "FAIL with radios on (errno %d, %u KB RAM)", wdLogLastErrno, ramRun);
+    sdTestText = s; sdTestCol = C_BAD; openLogFS(); return;
+  }
+  snprintf(s, sizeof(s), "PASS %lu/%lu KB/s, radios-on OK", 64000UL / max(1UL, tw), 64000UL / max(1UL, tr));
   sdTestText = s; sdTestCol = C_OK;
   openLogFS();
 }
@@ -5330,7 +5402,15 @@ void drawStorageScreen() {
   for (int i = 0; i < 3; i++) drawThemedButton(G.mode[i].x, G.mode[i].y, G.mode[i].w, G.mode[i].h, labs[i], logStoreMode == i ? C_GREEN : getBtnFill(), TFT_WHITE);
   static const char* hints[3] = { "Card, flash if it fails", "Card only - never flash", "Board flash only" };
   tft.setFont(F_XS); tft.setTextDatum(TC_DATUM); tft.setTextColor(UI_MUTE, TFT_BLACK);
-  tft.drawString(hints[logStoreMode], G.hintCx, G.hintY);
+  if (wdLogSummary.length()) {   // after a run: its result replaces the mode hint
+    String s = "Last run: " + wdLogSummary;
+    s.replace(" saved to ", " on "); s.replace("Log NOT saved - check the card", "NOT saved");
+    if (wdLogWriteFails) s += " - " + wdLogLastErr;
+    int lw = tft.width() > tft.height() ? 150 : tft.width() - 16;
+    while (s.length() > 4 && tft.textWidth(s) > lw) s.remove(s.length() - 1);
+    tft.setTextColor(wdLogSummaryCol, TFT_BLACK);
+    tft.drawString(s.c_str(), G.hintCx, G.hintY);
+  } else tft.drawString(hints[logStoreMode], G.hintCx, G.hintY);
   drawThemedButton(G.test.x, G.test.y, G.test.w, G.test.h, "TEST CARD", getBtnFill(), TFT_WHITE);
   drawThemedButton(G.move.x, G.move.y, G.move.w, G.move.h, "MOVE TO CARD", getBtnFill(), fn ? TFT_WHITE : UI_DIM);
   uiResetFont();
@@ -6376,6 +6456,12 @@ void handleDownload() {
     return;
   }
   String name = server.arg("file");
+  if (name == "SKIrf_runlog.txt") {
+    File jf = logFs().open("/SKIrf_runlog.txt", FILE_READ);
+    if (!jf) { server.send(404, "text/plain", "No run journal yet"); return; }
+    server.sendHeader("Content-Disposition", "attachment; filename=\"SKIrf_runlog.txt\"");
+    server.streamFile(jf, "text/plain"); jf.close(); return;
+  }
   if (!safeCsvPath(name)) {
     server.send(403, "text/plain", "Only .csv wardrive logs can be downloaded");
     return;

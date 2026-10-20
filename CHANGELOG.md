@@ -6,6 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- Card writes during a run went straight from the PSRAM row buffer to the card driver, which cannot DMA from PSRAM and needs on-chip bounce memory that Wi-Fi and Bluetooth have taken; the card test (on-chip buffer, radios off) passed while runs failed. Run writes now go through a 512-byte on-chip buffer, one sector at a time.
 - Runs could lose their rows even though the card tested fine: the log file was re-opened for every batch, and opening a file on the card needs internal RAM that Wi-Fi and Bluetooth use up during a run, so the writes failed mid-run (and the old 4 KB buffer then dropped the rows). The run's file is now opened once, before the radios start, and kept open; rows wait in a 512 KB PSRAM buffer and leave it only once they are written (flushed after every sweep); at the end of a run the radios are switched off before the last write, with a card remount if needed.
 - With a card fitted and no saved choice (first start, or after flashing), logs now default to Card only, which never uses the board's flash. Auto and Flash are still in Settings > Storage.
 - A failed card write during a run now remounts the card at a lower clock (16 > 8 > 4 MHz) twice before giving up on the card, instead of going straight to the board's flash.
@@ -33,6 +34,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GPS: satellites in view are also read from $GNGSV sentences.
 
 ### Added
+- TEST CARD now has a second phase that writes the way a run does: Wi-Fi and Bluetooth on, file kept open, rows from the PSRAM buffer, flushed per batch.
+- Run journal on the card (SKIrf_runlog.txt): one line per run with file, storage, mode, rows, bytes, writes, failures, unsaved bytes and the last error. Settings > Storage shows the last run's result; the portal's Setup tab can download the journal.
 - Settings > Storage: the microSD card's state (found, used / total, clock) and the board flash's (logs and space), a TEST CARD button (fresh mount, writes 64 KB, reads it back, compares, deletes; reports PASS with speeds or what failed), SAVE LOGS TO: Auto (card, flash if the card fails) / Card only / Flash only (kept across restarts), and MOVE TO CARD for logs saved in flash.
 - Run report: says where the log went ("206 rows saved to microSD", "... to board flash", "No log: the GPS had no fix", or "Log NOT saved").
 - Web portal redesigned to match the board: one page with Logs, Upload and Setup tabs, in the board's theme colours and font. Shows log count and size, storage use, GPS and your records; logs are listed by date with their ride, and can be selected to upload, download as one .zip, or delete. Confirmations and messages appear in the page instead of browser pop-ups.
