@@ -1796,7 +1796,7 @@ static void migrateFlashLogs(bool force = false) {
   static unsigned long lastTry = 0;
   if (!force && lastTry && millis() - lastTry < 5000) return;
   lastTry = millis();
-  if (!LittleFS.begin(false)) return;
+  if (!flashUp()) return;
   String names[16]; int n = 0;
   File root = LittleFS.open("/");
   if (root) {
@@ -1814,7 +1814,14 @@ static void migrateFlashLogs(bool force = false) {
     File src = LittleFS.open(path, FILE_READ);
     if (!src) continue;
     String dstPath = path;
-    if (SD.exists(dstPath)) dstPath = "/" + names[i].substring(0, names[i].length() - 4) + "_flash.csv";
+    if (SD.exists(dstPath)) {
+      File have = SD.open(dstPath, FILE_READ);
+      bool same = have && have.size() == src.size();
+      if (have) have.close();
+      if (same) { src.close(); continue; }                 // already copied
+      dstPath = "/" + names[i].substring(0, names[i].length() - 4) + "_flash.csv";
+      if (SD.exists(dstPath)) { src.close(); continue; }
+    }
     File dst = SD.open(dstPath, FILE_WRITE);
     bool ok = (bool)dst;
     uint8_t buf[512];
@@ -1823,8 +1830,10 @@ static void migrateFlashLogs(bool force = false) {
     src.close();
     if (dst) dst.close();
     if (ok) { File chk = SD.open(dstPath, FILE_READ); ok = chk && chk.size() == want; if (chk) chk.close(); }
-    if (ok) { LittleFS.remove(path); Serial.printf("Moved %s from board flash to the card\n", names[i].c_str()); }
-    else Serial.printf("Could not move %s to the card (left in flash)\n", names[i].c_str());
+    // Copy only: the flash copy stays until the user moves it (Settings > Storage), which
+    // re-checks the card copy after a fresh mount before deleting anything.
+    if (ok) Serial.printf("Copied %s from board flash to the card (flash copy kept)\n", names[i].c_str());
+    else { Serial.printf("Could not copy %s to the card\n", names[i].c_str()); SD.remove(dstPath); }
   }
 }
 
@@ -1844,6 +1853,62 @@ fs::FS& logFs() {
 
 File openLogFile(const char* path, const char* mode) {
   return logFs().open(path, mode);
+}
+
+// ---------- Logs on both stores ----------
+// A log can be on the card, in the board's flash, or both. Everything that lists, opens or
+// deletes logs looks at both, so a log never "disappears" because the board switched stores.
+uint8_t fileWhere[MAX_LOG_FILES];        // per Logs-list row: 1 card, 2 flash, 3 both
+static bool flashUp() { return LittleFS.begin(false); }   // never formats
+
+File logOpenRead(const String &path) {
+  tft.waitDMA(); tft.endWrite();
+  if (sdReady) { File f = SD.open(path, FILE_READ); if (f) return f; }
+  if (flashUp()) { File f = LittleFS.open(path, FILE_READ); if (f) return f; }
+  return File();
+}
+bool logExistsAny(const String &path) {
+  tft.waitDMA(); tft.endWrite();
+  return (sdReady && SD.exists(path)) || (flashUp() && LittleFS.exists(path));
+}
+int logRemoveAny(const String &path) {
+  tft.waitDMA(); tft.endWrite();
+  int n = 0;
+  if (sdReady && SD.exists(path) && SD.remove(path)) n++;
+  if (flashUp() && LittleFS.exists(path) && LittleFS.remove(path)) n++;
+  return n;
+}
+bool isCsvName(const String& name);
+static void listOneStore(fs::FS &store, uint8_t bit, String* names, uint32_t* sizes, uint8_t* where, int &n, int maxN) {
+  File root = store.open("/");
+  if (!root) return;
+  File f = root.openNextFile();
+  while (f) {
+    String name = f.name(); if (name.startsWith("/")) name = name.substring(1);
+    if (!f.isDirectory() && isCsvName(name)) {
+      int k = -1;
+      for (int i = 0; i < n; i++) if (names[i] == name) { k = i; break; }
+      if (k >= 0) { if (where) where[k] |= bit; if (sizes && f.size() > sizes[k]) sizes[k] = f.size(); }
+      else if (n < maxN) { names[n] = name; if (sizes) sizes[n] = f.size(); if (where) where[n] = bit; n++; }
+    }
+    f = root.openNextFile();
+  }
+  root.close();
+}
+// Every log on the card and in flash, newest first (by the date in the name).
+int listAllLogs(String* names, int maxN, uint32_t* sizes = nullptr, uint8_t* where = nullptr) {
+  tft.waitDMA(); tft.endWrite();
+  int n = 0;
+  if (sdReady) listOneStore(SD, 1, names, sizes, where, n, maxN);
+  if (flashUp()) listOneStore(LittleFS, 2, names, sizes, where, n, maxN);
+  auto key = [](const String &s) { int i = s.indexOf('_', 9); return (s.startsWith("SKIrf_WD_") && i > 0) ? s.substring(i + 1) : String(""); };
+  for (int i = 1; i < n; i++) {
+    String cn = names[i], ck = key(cn); uint32_t cs = sizes ? sizes[i] : 0; uint8_t cw = where ? where[i] : 0;
+    int j = i - 1;
+    while (j >= 0 && key(names[j]) < ck) { names[j + 1] = names[j]; if (sizes) sizes[j + 1] = sizes[j]; if (where) where[j + 1] = where[j]; j--; }
+    names[j + 1] = cn; if (sizes) sizes[j + 1] = cs; if (where) where[j + 1] = cw;
+  }
+  return n;
 }
 
 // ---------- WiGLE 1.6 CSV writer ----------
@@ -4020,6 +4085,12 @@ void filesPaintList() {
     g.setTextDatum(ML_DATUM);
     g.setTextColor(UI_TEXT, bg);
     int maxW = w - 62;
+    if (fileWhere[row] == 2) {   // only in the board's flash: tag it
+      g.setFont(F_XS); g.setTextDatum(MR_DATUM); g.setTextColor(C_WARN, bg);
+      g.drawString("FLASH", x + w - 12, cy + 1);
+      maxW -= g.textWidth("FLASH") + 10;
+      g.setFont(F_S); g.setTextDatum(ML_DATUM); g.setTextColor(UI_TEXT, bg);
+    }
     while (shown.length() > 1 && g.textWidth(shown.c_str()) > maxW) shown = shown.substring(0, shown.length() - 1);
     g.drawString(shown.c_str(), x + 56, cy + 1);
   });
@@ -4033,7 +4104,7 @@ void drawFilesScreen() {
   int h = tft.height();
   int selN = filesSelectedCount();
   char sum[40];
-  if (fileBrowserCount == 0) snprintf(sum, sizeof(sum), "No logs on the %s yet", logUseLittleFS ? "flash" : "SD card");
+  if (fileBrowserCount == 0) snprintf(sum, sizeof(sum), "No logs yet");
   else if (selN) snprintf(sum, sizeof(sum), "%d of %d selected", selN, fileBrowserCount);
   else snprintf(sum, sizeof(sum), "%d runs  -  tap to select", fileBrowserCount);
   tft.setFont(F_XS);
@@ -4439,30 +4510,9 @@ void showWdgStatusScreen(const char* line1, const char* line2 = "", const char* 
 // On-device WDGWars upload (needs home WiFi + API key)
 
 void loadCsvFileList() {
-  openLogFS();                         // remounts the card and moves any logs saved in flash onto it
-  fileBrowserCount = 0;
-  for (int i = 0; i < MAX_LOG_FILES; i++) { fileSelected[i] = false; fileNames[i] = ""; }
-  File root = logFs().open("/");
-  if (!root) return;
-  File f = root.openNextFile();
-  while (f && fileBrowserCount < MAX_LOG_FILES) {
-    if (!f.isDirectory()) {
-      String name = f.name();
-      if (name.startsWith("/")) name = name.substring(1);
-      String lower = name; lower.toLowerCase();
-      if (lower.endsWith(".csv")) fileNames[fileBrowserCount++] = name;
-    }
-    f = root.openNextFile();
-  }
-  root.close();
-  // newest first: SKIrf_WD_<ride>_<yyyymmdd>_<hhmmss>.csv sorts by its date part
-  auto key = [](const String &n) { int i = n.indexOf('_', 9); return (n.startsWith("SKIrf_WD_") && i > 0) ? n.substring(i + 1) : String(""); };
-  for (int i = 1; i < fileBrowserCount; i++) {
-    String cur = fileNames[i], ck = key(cur);
-    int j = i - 1;
-    while (j >= 0 && key(fileNames[j]) < ck) { fileNames[j + 1] = fileNames[j]; j--; }
-    fileNames[j + 1] = cur;
-  }
+  openLogFS();                         // remounts the card if needed; copies flash logs onto it
+  for (int i = 0; i < MAX_LOG_FILES; i++) { fileSelected[i] = false; fileNames[i] = ""; fileWhere[i] = 0; }
+  fileBrowserCount = listAllLogs(fileNames, MAX_LOG_FILES, nullptr, fileWhere);
   fileBrowserScroll = 0; filesScrollPx = 0;
 }
 
@@ -4756,7 +4806,7 @@ void filesDeleteSelected() {
   for (int i = 0; i < fileBrowserCount; i++) {
     if (!fileSelected[i]) continue;
     String path = "/" + fileNames[i];
-    if (logFs().exists(path)) { logFs().remove(path); n++; }
+    if (logRemoveAny(path)) n++;
   }
   char buf[32];
   snprintf(buf, sizeof(buf), "Removed %d file(s)", n);
@@ -4767,7 +4817,7 @@ void filesDeleteAll() {
   int n = 0;
   for (int i = 0; i < fileBrowserCount; i++) {
     String path = "/" + fileNames[i];
-    if (logFs().exists(path)) { logFs().remove(path); n++; }
+    if (logRemoveAny(path)) n++;
   }
   char buf[32];
   snprintf(buf, sizeof(buf), "Removed %d file(s)", n);
@@ -4835,20 +4885,7 @@ void doWdgUploadFromDevice() {
 
   static String names[MAX_LOG_FILES];
   int n = 0;
-  File root = logFs().open("/");
-  if (root) {
-    File f = root.openNextFile();
-    while (f && n < MAX_LOG_FILES) {
-      if (!f.isDirectory()) {
-        String name = f.name();
-        if (name.startsWith("/")) name = name.substring(1);
-        String lower = name; lower.toLowerCase();
-        if (lower.endsWith(".csv")) names[n++] = name;
-      }
-      f = root.openNextFile();
-    }
-    root.close();
-  }
+  n = listAllLogs(names, MAX_LOG_FILES);
 
   if (n == 0) {
     showWdgStatusScreen("No CSV files", "Run a wardrive first", "");
@@ -5233,7 +5270,7 @@ uint16_t sdTestCol = 0;
 
 static int countFlashLogs(uint32_t &bytes) {
   bytes = 0; int n = 0;
-  if (!LittleFS.begin(true)) return 0;
+  if (!flashUp()) return 0;
   File root = LittleFS.open("/");
   if (!root) return 0;
   File f = root.openNextFile();
@@ -5417,6 +5454,55 @@ void drawStorageScreen() {
   drawBackButton("BACK");
 }
 
+// Compare one flash log with its card copy byte for byte.
+bool sameOnCard(const String &name) {
+  String path = "/" + name;
+  File a = LittleFS.open(path, FILE_READ);
+  File b = SD.open(path, FILE_READ);
+  if (!b) {
+    String alt = "/" + name.substring(0, name.length() - 4) + "_flash.csv";
+    b = SD.open(alt, FILE_READ);
+  }
+  bool same = a && b && a.size() == b.size();
+  static uint8_t bufA[256];
+  static uint8_t bufB[256];
+  while (same && a.available()) {
+    int r1 = a.read(bufA, sizeof(bufA));
+    if (r1 <= 0) { same = false; break; }
+    int r2 = b.read(bufB, r1);
+    if (r2 != r1 || memcmp(bufA, bufB, r1) != 0) same = false;
+  }
+  if (a) a.close();
+  if (b) b.close();
+  return same;
+}
+
+// After a fresh card mount: delete each flash log whose card copy is identical.
+void verifyAndRemoveFlashCopies(int &moved, int &bad, String &why) {
+  static String nm[16];
+  int k = 0;
+  File root = LittleFS.open("/");
+  if (root) {
+    File f = root.openNextFile();
+    while (f && k < 16) {
+      String s = f.name();
+      if (s.startsWith("/")) s = s.substring(1);
+      if (!f.isDirectory() && isCsvName(s)) nm[k++] = s;
+      f = root.openNextFile();
+    }
+    root.close();
+  }
+  for (int i = 0; i < k; i++) {
+    if (sameOnCard(nm[i])) {
+      LittleFS.remove("/" + nm[i]);
+      moved++;
+    } else {
+      bad++;
+      if (!why.length()) why = "card copy missing or different";
+    }
+  }
+}
+
 static bool inRect(const Rect &r, int x, int y) { return x >= r.x - 3 && x <= r.x + r.w + 3 && y >= r.y - 3 && y <= r.y + r.h + 3; }
 
 void storageTouch(int tx, int ty) {
@@ -5432,17 +5518,23 @@ void storageTouch(int tx, int ty) {
   if (inRect(G.test, tx, ty)) { beep(1, 25); sdSelfTest(); beep(sdTestCol == C_OK ? 2 : 1, 60); drawStorageScreen(); return; }
   if (inRect(G.move, tx, ty)) {
     uint32_t fb; int fn = countFlashLogs(fb);
-    if (!fn) { beep(1, 15); return; }
+    if (!fn) { showWdgStatusScreen("Nothing to move", "No logs in the board's flash", "", -1, 0, "STORAGE"); delay(1500); drawStorageScreen(); return; }
     beep(1, 25);
-    showWdgStatusScreen("Moving logs...", "Board flash to card", "", -1, 0, "STORAGE");
-    uint8_t keep = logStoreMode; if (logStoreMode == 2) logStoreMode = 0;
-    SD.end(); sdReady = false;
-    if (tryMountSd()) migrateFlashLogs(true);
-    logStoreMode = keep; openLogFS();
-    int left = countFlashLogs(fb);
-    char r[40]; snprintf(r, sizeof(r), left ? "%d log(s) could not move" : "All logs are on the card", left);
-    showWdgStatusScreen(left ? "Some logs stayed" : "Done", r, left ? "Run TEST CARD" : "", -1, 0, "STORAGE");
-    delay(1800);
+    showWdgStatusScreen("Moving logs...", "Copying to the card", "", -1, 0, "STORAGE");
+    SD.end(); sdReady = false; sdMaxHz = 16000000;
+    if (!tryMountSd()) { showWdgStatusScreen("No card", "The card did not mount", "Logs stay in flash", -1, 0, "STORAGE"); delay(2200); drawStorageScreen(); return; }
+    migrateFlashLogs(true);                                    // copy (keeps flash copies)
+    // fresh mount, then compare every byte before deleting a flash copy
+    showWdgStatusScreen("Moving logs...", "Checking the copies", "", -1, 0, "STORAGE");
+    SD.end(); sdReady = false; delay(50);
+    int moved = 0, bad = 0; String why = "";
+    if (!tryMountSd()) { bad = fn; why = "card did not re-mount"; }
+    else verifyAndRemoveFlashCopies(moved, bad, why);
+    if (logStoreMode != 2) openLogFS();
+    char r1[40]; snprintf(r1, sizeof(r1), "%d moved, %d kept in flash", moved, bad);
+    showWdgStatusScreen(bad ? "Some logs stayed" : "Done", r1, bad ? why.c_str() : "All logs are on the card", -1, 0, "STORAGE");
+    Serial.printf("Move to card: %s %s\n", r1, why.c_str());
+    delay(bad ? 4000 : 1800);
     drawStorageScreen();
   }
 }
@@ -5980,26 +6072,9 @@ void handleDownloadAll() {
   for (int i = 0; i < server.args() && nFiles < MAX_LOG_FILES; i++) {
     if (server.argName(i) != "f") continue;
     String nm = server.arg(i);
-    if (safeCsvPath(nm) && logFs().exists("/" + nm)) names[nFiles++] = nm;
+    if (safeCsvPath(nm) && logExistsAny("/" + nm)) names[nFiles++] = nm;
   }
-  File root = nFiles ? File() : logFs().open("/");
-  if (root) {
-    File f = root.openNextFile();
-    while (f && nFiles < MAX_LOG_FILES) {
-      if (!f.isDirectory()) {
-        String name = f.name();
-        if (name.startsWith("/")) name = name.substring(1);
-        String lower = name;
-        lower.toLowerCase();
-        if (lower.endsWith(".csv")) {
-          names[nFiles++] = name;
-        }
-      }
-      f = root.openNextFile();
-    }
-    root.close();
-  }
-
+  if (!nFiles) nFiles = listAllLogs(names, MAX_LOG_FILES);
   if (nFiles == 0) {
     server.send(404, "text/plain", "No CSV files found");
     return;
@@ -6027,7 +6102,7 @@ void handleDownloadAll() {
 
   for (int i = 0; i < nFiles; i++) {
     String path = "/" + names[i];
-    File src = logFs().open(path, FILE_READ);
+    File src = logOpenRead(path);
     if (!src) continue;
 
     uint32_t sz = src.size();
@@ -6173,7 +6248,7 @@ int uploadOneCsvToWdg(const String& path) {
   if (wdgApiKey.length() < 8) { lastWdgError = "API key missing/too short"; return -1; }
   if (WiFi.status() != WL_CONNECTED) { lastWdgError = "WiFi not connected"; return -2; }
 
-  File f = logFs().open(path, FILE_READ);
+  File f = logOpenRead(path);
   if (!f) { lastWdgError = "Cannot open " + path; return -3; }
   size_t fsize = f.size();
 
@@ -6310,7 +6385,7 @@ int uploadOneCsvToWigle(const String& path) {
     lastWigleError = "WiFi not connected";
     return -2;
   }
-  File f = logFs().open(path, FILE_READ);
+  File f = logOpenRead(path);
   if (!f) { lastWigleError = "Cannot open file"; return -3; }
   size_t fsize = f.size();
   String boundary = "SKIrfWigle9b2";
@@ -6388,20 +6463,7 @@ void doWigleUploadFromDevice() {
   }
   showWdgStatusScreen("Wigle uploading...", WiFi.localIP().toString().c_str(), "Do not power off");
   static String names[MAX_LOG_FILES]; int n = 0;
-  File root = logFs().open("/");
-  if (root) {
-    File f = root.openNextFile();
-    while (f && n < MAX_LOG_FILES) {
-      if (!f.isDirectory()) {
-        String name = f.name();
-        if (name.startsWith("/")) name = name.substring(1);
-        String lower = name; lower.toLowerCase();
-        if (lower.endsWith(".csv")) names[n++] = name;
-      }
-      f = root.openNextFile();
-    }
-    root.close();
-  }
+  n = listAllLogs(names, MAX_LOG_FILES);
   if (n == 0) {
     showWdgStatusScreen("No CSV files", "Run a wardrive first", "");
     delay(2000); drawSettingsScreen(); return;
@@ -6468,12 +6530,12 @@ void handleDownload() {
   }
   name = "/" + name;
 
-  if (!logFs().exists(name)) {
+  if (!logExistsAny(name)) {
     server.send(404, "text/plain", "File not found");
     return;
   }
 
-  File f = logFs().open(name, FILE_READ);
+  File f = logOpenRead(name);
   if (!f) {
     server.send(500, "text/plain", "Open failed");
     return;
@@ -6502,8 +6564,7 @@ void handleDelete() {
   }
   name = "/" + name;
 
-  if (logFs().exists(name)) {
-    logFs().remove(name);
+  if (logRemoveAny(name)) {
     Serial.println("Deleted CSV: " + name);
   }
   server.sendHeader("Location", "/");
@@ -6573,28 +6634,15 @@ void handleFontB()   { webSendBin("font/woff2", WEB_FONT_B, WEB_FONT_B_LEN, fals
 void handleLogo()    { webSendBin("image/png", WEB_LOGO, WEB_LOGO_LEN, false, true); }
 void handleFavicon() { webSendBin("image/png", WEB_FAVICON, WEB_FAVICON_LEN, false, true); }
 
-static int listCsv(String* names, int maxN, uint32_t* sizes = nullptr) {
-  int n = 0;
-  File root = logFs().open("/");
-  if (!root) return 0;
-  File f = root.openNextFile();
-  while (f && n < maxN) {
-    if (!f.isDirectory()) {
-      String name = f.name();
-      if (name.startsWith("/")) name = name.substring(1);
-      if (isCsvName(name)) { if (sizes) sizes[n] = f.size(); names[n++] = name; }
-    }
-    f = root.openNextFile();
-  }
-  root.close();
-  return n;
+static int listCsv(String* names, int maxN, uint32_t* sizes = nullptr, uint8_t* where = nullptr) {
+  return listAllLogs(names, maxN, sizes, where);
 }
 
 void handleApiStatus() {
   portalHit();
   openLogFS();
-  static String names[MAX_LOG_FILES]; static uint32_t sizes[MAX_LOG_FILES];
-  int n = listCsv(names, MAX_LOG_FILES, sizes);
+  static String names[MAX_LOG_FILES]; static uint32_t sizes[MAX_LOG_FILES]; static uint8_t where[MAX_LOG_FILES];
+  int n = listCsv(names, MAX_LOG_FILES, sizes, where);
   bool sd = !logUseLittleFS && sdReady;
   uint64_t used = sd ? SD.usedBytes() : LittleFS.usedBytes();
   uint64_t total = sd ? SD.totalBytes() : LittleFS.totalBytes();
@@ -6611,7 +6659,7 @@ void handleApiStatus() {
   j += ",\"files\":[";
   for (int i = 0; i < n; i++) {
     if (i) j += ',';
-    j += "{\"n\":" + jsonStr(names[i]) + ",\"s\":" + String(sizes[i]) + "}";
+    j += "{\"n\":" + jsonStr(names[i]) + ",\"s\":" + String(sizes[i]) + ",\"w\":" + String(where[i]) + "}";
   }
   j += "]}";
   server.sendHeader("Cache-Control", "no-store");
@@ -6654,12 +6702,12 @@ void handleApiDelete() {
   if (server.hasArg("all")) {
     static String names[MAX_LOG_FILES];
     int n = listCsv(names, MAX_LOG_FILES);
-    for (int i = 0; i < n; i++) if (logFs().remove("/" + names[i])) deleted++;
+    for (int i = 0; i < n; i++) if (logRemoveAny("/" + names[i])) deleted++;
   } else {
     for (int i = 0; i < server.args(); i++) {
       if (server.argName(i) != "f") continue;
       String nm = server.arg(i);
-      if (safeCsvPath(nm) && logFs().remove("/" + nm)) deleted++;
+      if (safeCsvPath(nm) && logRemoveAny("/" + nm)) deleted++;
     }
   }
   Serial.printf("Portal: deleted %d log(s)\n", deleted);

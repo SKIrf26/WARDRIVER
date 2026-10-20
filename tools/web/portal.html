@@ -265,7 +265,7 @@ function renderList(){
   if(!files.length){L.innerHTML='<div class="empty"><b>No logs yet</b>Start a wardrive on the board. Each run saves one log here.</div>';return}
   L.innerHTML=files.map(f=>{const i=info(f.n);return`<div class="row${sel.has(f.n)?' sel':''}" data-n="${esc(f.n)}">
 <span class="chk">${IC.CK}</span><span class="ico">${IC[i.ic]}</span>
-<span class="meta"><b>${esc(i.t)}</b><span>${i.r} · ${size(f.s)}</span></span>
+<span class="meta"><b>${esc(i.t)}</b><span>${i.r} · ${size(f.s)}${f.w==2?' · <span style="color:var(--warn)">board flash</span>':''}</span></span>
 <a class="ibtn" href="/download?file=${encodeURIComponent(f.n)}" aria-label="Download" onclick="event.stopPropagation()">${IC.DL}</a></div>`}).join('');
   $$('#list .row').forEach(r=>r.onclick=()=>{const n=r.dataset.n;sel.has(n)?sel.delete(n):sel.add(n);r.classList.toggle('sel');selChanged()});
 }
