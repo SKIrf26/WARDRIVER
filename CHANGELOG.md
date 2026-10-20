@@ -6,6 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- A failed card write during a run now remounts the card at a lower clock (16 > 8 > 4 MHz) twice before giving up on the card, instead of going straight to the board's flash.
 - GPS could stop getting a fix after an upload from the board: the home Wi-Fi connection stayed up (now at full transmit power) a few centimetres from the GPS antenna. The connection now drops 20 s after leaving the Wi-Fi screens, like the idle radio already did; uploads join the network again by themselves. The GPS screen says "Wi-Fi on: slows the fix" while the radio is on and there is no fix.
 - Logs could go missing from the Logs list, the portal and uploads: the board listed only the first 40 files on the card in the card's own order, so new runs could fall off the end, and a run that had to fall back to the board's flash was invisible once the card was back. The list now holds 120 logs, newest first; logs saved in flash are moved onto the card as soon as it works again; and a run that logged nothing (no GPS fix) no longer leaves an empty file behind.
 - Uploads failed with "memory allocation failed": a TLS connection needs 40-50 KB and the chip's internal RAM had about 45 KB left with Wi-Fi, the display and the SD card running. mbedTLS now takes its larger blocks (512 bytes and up) from the 8 MB PSRAM, as ESP-IDF's CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC would.
@@ -30,6 +31,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GPS: satellites in view are also read from $GNGSV sentences.
 
 ### Added
+- Settings > Storage: the microSD card's state (found, used / total, clock) and the board flash's (logs and space), a TEST CARD button (fresh mount, writes 64 KB, reads it back, compares, deletes; reports PASS with speeds or what failed), SAVE LOGS TO: Auto (card, flash if the card fails) / Card only / Flash only (kept across restarts), and MOVE TO CARD for logs saved in flash.
 - Run report: says where the log went ("206 rows saved to microSD", "... to board flash", "No log: the GPS had no fix", or "Log NOT saved").
 - Web portal redesigned to match the board: one page with Logs, Upload and Setup tabs, in the board's theme colours and font. Shows log count and size, storage use, GPS and your records; logs are listed by date with their ride, and can be selected to upload, download as one .zip, or delete. Confirmations and messages appear in the page instead of browser pop-ups.
 - GPS screen: "Moved N sec ago" shows how long ago the module last reported a new position; latitude and longitude show 6 decimals.

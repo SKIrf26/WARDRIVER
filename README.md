@@ -35,7 +35,7 @@ It is passive: it only receives the beacons and adverts that devices broadcast o
 - **WDGWars stats** on the board
 - **Pro mode**: an operator console with RSSI windows, channel plans, GPS gates, scan interval and a live session readout
 - Themes (eight accent colours plus WDGW pink + cyan), four screen orientations, brightness presets, drag-to-scroll lists everywhere
-- Logs to the microSD card, or to the board's own flash when no card is fitted
+- Logs to the microSD card, or to the board's own flash when no card is fitted; Settings > Storage tests the card and picks where logs go (Auto / Card / Flash)
 
 <table>
 <tr>

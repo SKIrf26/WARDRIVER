@@ -82,9 +82,10 @@
 // ---------- Pins and types ----------
 // Types first so Arduino's auto-prototyper can emit waitForTap() etc.
 struct CalPoint { int rawX, rawY; };
-enum Screen { HOME_SCREEN, WARDRIVING_SCREEN, WD_MODE_SCREEN, GPS_SCREEN, SETTINGS_SCREEN, BRIGHTNESS_SCREEN, ORIENTATION_SCREEN, UI_COLOR_SCREEN, FILES_SCREEN, WIFI_SCREEN, WIFI_SCAN_SCREEN, WIFI_PASS_SCREEN, DISCLAIMER_SCREEN, GPS_PINS_SCREEN, GAME_STATS_SCREEN, PRO_SCREEN, PRO_SESSION_SCREEN, SUMMARY_SCREEN };
+enum Screen { HOME_SCREEN, WARDRIVING_SCREEN, WD_MODE_SCREEN, GPS_SCREEN, SETTINGS_SCREEN, BRIGHTNESS_SCREEN, ORIENTATION_SCREEN, UI_COLOR_SCREEN, FILES_SCREEN, WIFI_SCREEN, WIFI_SCAN_SCREEN, WIFI_PASS_SCREEN, DISCLAIMER_SCREEN, GPS_PINS_SCREEN, GAME_STATS_SCREEN, PRO_SCREEN, PRO_SESSION_SCREEN, SUMMARY_SCREEN, STORAGE_SCREEN };
 enum WdTransport { WD_XPORT_CAR = 0, WD_XPORT_MOTO = 1, WD_XPORT_WALK = 2 };
 struct Rect { int x, y, w, h; };
+struct StorageGeom { Rect card, flash, mode[3], test, move; int modeLabelX, modeLabelY, hintCx, hintY; };
 // Animation lanes (see ANIMATION LANES)
 enum LaneScene : uint8_t { SC_NONE = 0, SC_ROAD };
 enum LaneRole : uint8_t { ROLE_HOME_A = 0, ROLE_HOME_B, ROLE_WD, ROLE_SPLASH_A, ROLE_SPLASH_B, ROLE_MISC };
@@ -602,7 +603,7 @@ int iconForTitle(const char* t) {
     {"WARDRIVER", ICON_RADAR}, {"WARDRIVING", ICON_RADAR}, {"TRANSPORT", ICON_CAR}, {"GPS", ICON_SATELLITE},
     {"SETTINGS", ICON_COG}, {"BRIGHTNESS", ICON_BRIGHTNESS}, {"UI COLOR", ICON_PALETTE},
     {"ORIENTATION", ICON_ROTATE}, {"FILES", ICON_FOLDER}, {"WIFI", ICON_WIFI}, {"SELECT WIFI", ICON_WIFI},
-    {"PASSWORD", ICON_WIFI}, {"DISCLAIMER", ICON_ALERT}, {"GPS PINS", ICON_PIN}, {"WDGW STATS", ICON_TROPHY},
+    {"PASSWORD", ICON_WIFI}, {"DISCLAIMER", ICON_ALERT}, {"GPS PINS", ICON_PIN}, {"STORAGE", ICON_FOLDER}, {"WDGW STATS", ICON_TROPHY},
     {"PRO CONSOLE", ICON_SHIELD}, {"SESSION", ICON_SHIELD}, {"UPLOAD", ICON_UPLOAD}, {"WEB PORTAL", ICON_PORTAL},
     {"SESSION REPORT", ICON_TROPHY}, {"TOUCH CAL", ICON_TAP},
   };
@@ -782,7 +783,7 @@ const char* niceTitle(const char* t) {
     {"SETTINGS", "Settings"}, {"BRIGHTNESS", "Brightness"}, {"UI COLOR", "Theme"}, {"ORIENTATION", "Orientation"},
     {"FILES", "Logs"}, {"WIFI", "Wi-Fi"}, {"SELECT WIFI", "Choose network"}, {"PASSWORD", "Password"},
     {"DISCLAIMER", "About & safety"}, {"GPS PINS", "GPS pins"}, {"WDGW STATS", "WDGWars stats"},
-    {"PRO CONSOLE", "Pro mode"}, {"SESSION", "Live session"}, {"UPLOAD", "Upload"}, {"WEB PORTAL", "Web portal"},
+    {"PRO CONSOLE", "Pro mode"}, {"STORAGE", "Storage"}, {"SESSION", "Live session"}, {"UPLOAD", "Upload"}, {"WEB PORTAL", "Web portal"},
     {"SESSION REPORT", "Run report"}, {"FILES", "Logs"},
   };
   for (const M &e : m) if (t && strcmp(t, e.k) == 0) return e.v;
@@ -1758,32 +1759,42 @@ void saveRecords() {
 }
 
 // ---------- Storage ----------
+// Card clock: starts at 16 MHz; every remount after a failed write steps down, because the
+// card shares the display's bus and long or noisy wiring can corrupt writes at speed.
+uint32_t sdMaxHz = 16000000, sdHzNow = 0;
+uint8_t logStoreMode = 0;          // 0 auto (card, flash if the card fails), 1 card only, 2 flash only
 bool tryMountSd() {
   if (sdReady) return true;
   SPI.begin(6, 2, 7, SD_CS);  // SCK MISO MOSI CS  NM-CYD-C5
   delay(30);
   const uint32_t speeds[] = { 16000000, 8000000, 4000000, 1000000, 400000 };
   for (uint32_t hz : speeds) {
+    if (hz > sdMaxHz) continue;
     if (SD.begin(SD_CS, SPI, hz)) {
-      sdReady = true;
+      sdReady = true; sdHzNow = hz;
       Serial.printf("SD OK @ %lu Hz\n", (unsigned long)hz);
       return true;
     }
     SD.end();
     delay(20);
   }
-  Serial.println("SD FAIL — logs will use LittleFS so scans can still run");
+  sdHzNow = 0;
+  Serial.println("SD FAIL");
   return false;
+}
+void sdStepDown() {   // next mount uses a slower clock
+  if (sdHzNow > 1000000) sdMaxHz = sdHzNow / 2;
+  Serial.printf("SD clock capped at %lu Hz\n", (unsigned long)sdMaxHz);
 }
 
 // Logs a run had to save in the board's flash (card missing or failing at the time) are
 // moved onto the card as soon as it works again, so the Logs list, the portal and uploads
 // (which use the card when there is one) never lose sight of them.
 bool isCsvName(const String& name);
-static void migrateFlashLogs() {
-  if (wardriveActive) return;
+static void migrateFlashLogs(bool force = false) {
+  if (wardriveActive || logStoreMode == 2) return;
   static unsigned long lastTry = 0;
-  if (lastTry && millis() - lastTry < 5000) return;
+  if (!force && lastTry && millis() - lastTry < 5000) return;
   lastTry = millis();
   if (!LittleFS.begin(false)) return;
   String names[16]; int n = 0;
@@ -1818,7 +1829,9 @@ static void migrateFlashLogs() {
 }
 
 bool openLogFS() {
+  if (logStoreMode == 2) { if (LittleFS.begin(true)) { logUseLittleFS = true; return true; } return false; }
   if (tryMountSd()) { logUseLittleFS = false; migrateFlashLogs(); return true; }
+  if (logStoreMode == 1) return false;                 // card only: never fall back to flash
   if (LittleFS.begin(true)) { logUseLittleFS = true; return true; }
   return false;
 }
@@ -1862,9 +1875,11 @@ static bool wdWriteLog(const uint8_t* data, size_t len, const char* mode) {
   Serial.printf("Log write failed on %s (free heap %u, largest block %u) - remounting\n",
                 logUseLittleFS ? "flash" : "SD", (unsigned)ESP.getFreeHeap(), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA));
   if (!logUseLittleFS) {
-    SD.end(); sdReady = false; delay(20);
+    SD.end(); sdReady = false; sdStepDown(); delay(20);
     if (tryMountSd() && wdWriteOnce(data, len, mode)) { wdLogFailed = false; Serial.println("Log write OK after SD remount"); return true; }
-    if (LittleFS.begin(true)) {
+    SD.end(); sdReady = false; sdStepDown(); delay(20);         // one more, slower still
+    if (tryMountSd() && wdWriteOnce(data, len, mode)) { wdLogFailed = false; Serial.println("Log write OK after slower SD remount"); return true; }
+    if (logStoreMode == 0 && LittleFS.begin(true)) {
       logUseLittleFS = true;
       bool fresh = !LittleFS.exists(wardriveFile);
       if (fresh && strcmp(mode, FILE_WRITE) != 0) wdWriteOnce((const uint8_t*)WD_CSV_HEADER, strlen(WD_CSV_HEADER), FILE_WRITE);
@@ -2546,9 +2561,10 @@ const char* settingsLabels[] = {
   "GPS PINS",
   "TOUCH CAL",
   "WDGW STATS",
-  "PRO MODE"
+  "PRO MODE",
+  "STORAGE"
 };
-const int settingsCount = 11;
+const int settingsCount = 12;
 
 // Grid geometry for settings icons (portrait & landscape)
 void settingsIconGeom(int &cols, int &rows, int &cellW, int &cellH,
@@ -4978,6 +4994,7 @@ void activateSettingsItem(int i) {
     drawGpsPinsScreen();
   }
   else if (i == 8) { runCalibration(); }
+  else if (i == 11) { currentScreen = STORAGE_SCREEN; drawStorageScreen(); }
   else if (i == 9) {
     currentScreen = GAME_STATS_SCREEN;
     gameStatsScroll = 0;
@@ -5128,6 +5145,185 @@ void drawBrightnessValue() {
   uiResetFont();
 }
 
+// ================= STORAGE: card status, card test, where logs go =================
+String sdTestText = "Not tested - tap TEST CARD";
+uint16_t sdTestCol = 0;
+
+static int countFlashLogs(uint32_t &bytes) {
+  bytes = 0; int n = 0;
+  if (!LittleFS.begin(true)) return 0;
+  File root = LittleFS.open("/");
+  if (!root) return 0;
+  File f = root.openNextFile();
+  while (f) {
+    String name = f.name(); if (name.startsWith("/")) name = name.substring(1);
+    if (!f.isDirectory() && isCsvName(name)) { n++; bytes += f.size(); }
+    f = root.openNextFile();
+  }
+  root.close();
+  return n;
+}
+
+static void fmtBytes(uint64_t b, char* out, size_t n) {
+  if (b >= 1073741824ULL) snprintf(out, n, "%.1f GB", b / 1073741824.0);
+  else if (b >= 1048576ULL) snprintf(out, n, "%.1f MB", b / 1048576.0);
+  else snprintf(out, n, "%lu KB", (unsigned long)((b + 1023) / 1024));
+}
+
+// Fresh mount, then write 64 KB, read it back, compare, delete. Times both directions.
+void sdSelfTest() {
+  tft.waitDMA(); tft.endWrite();
+  showWdgStatusScreen("Testing card...", "Mounting", "", -1, 0, "STORAGE");
+  SD.end(); sdReady = false; sdMaxHz = 16000000;
+  if (!tryMountSd()) { sdTestText = "FAIL: no card (FAT32, 32 GB max)"; sdTestCol = C_BAD; return; }
+  const char* path = "/skirf_cardtest.bin";
+  const int CH = 512, N = 128;                      // 64 KB
+  static uint8_t buf[512];
+  showWdgStatusScreen("Testing card...", "Writing 64 KB", "", 1, 3, "STORAGE");
+  tft.waitDMA(); tft.endWrite();
+  unsigned long t0 = millis();
+  File f = SD.open(path, FILE_WRITE);
+  bool ok = (bool)f;
+  for (int i = 0; ok && i < N; i++) {
+    for (int k = 0; k < CH; k++) buf[k] = (uint8_t)(i * 31 + k * 7);
+    ok = f.write(buf, CH) == (size_t)CH;
+  }
+  if (f) f.close();
+  unsigned long tw = millis() - t0;
+  if (!ok) { SD.remove(path); sdTestText = "FAIL: write error"; sdTestCol = C_BAD; return; }
+  showWdgStatusScreen("Testing card...", "Reading back", "", 2, 3, "STORAGE");
+  tft.waitDMA(); tft.endWrite();
+  t0 = millis();
+  f = SD.open(path, FILE_READ);
+  ok = (bool)f && f.size() == (size_t)(CH * N);
+  for (int i = 0; ok && i < N; i++) {
+    if (f.read(buf, CH) != CH) { ok = false; break; }
+    for (int k = 0; k < CH; k++) if (buf[k] != (uint8_t)(i * 31 + k * 7)) { ok = false; break; }
+  }
+  if (f) f.close();
+  unsigned long tr = millis() - t0;
+  SD.remove(path);
+  if (!ok) { sdTestText = "FAIL: read-back mismatch"; sdTestCol = C_BAD; return; }
+  char s[72];
+  snprintf(s, sizeof(s), "PASS %lu/%lu KB/s", 64000UL / max(1UL, tw), 64000UL / max(1UL, tr));
+  sdTestText = s; sdTestCol = C_OK;
+  openLogFS();
+}
+
+void saveLogStoreMode() {
+  Preferences p;
+  if (p.begin("skirfst", false)) { p.putUChar("mode", logStoreMode); p.end(); }
+}
+void loadLogStoreMode() {
+  Preferences p;
+  if (p.begin("skirfst", true)) { logStoreMode = p.getUChar("mode", 0); p.end(); }
+  if (logStoreMode > 2) logStoreMode = 0;
+}
+
+void storageGeom(StorageGeom &G) {
+  int W = tft.width(), H = tft.height();
+  if (W > H) {   // landscape: status on the left, choices and actions on the right
+    int lw = 150, rx = 8 + lw + 8, rw = W - rx - 8;
+    G.card = { 8, 52, lw, 62 };
+    G.flash = { 8, 120, lw, 44 };
+    G.hintCx = 8 + lw / 2; G.hintY = 172;
+    G.modeLabelX = rx + 4; G.modeLabelY = 50;
+    for (int i = 0; i < 3; i++) G.mode[i] = { rx, 66 + i * 30, rw, 26 };
+    G.test = { rx, 162, rw, 28 };
+    G.move = { rx, 196, rw, 28 };
+    return;
+  }
+  int cw = W - 16, gap = 6, bh = 32;
+  G.card = { 8, 52, cw, 58 };
+  G.flash = { 8, 116, cw, 44 };
+  G.modeLabelX = 12; G.modeLabelY = 168;
+  int bw = (cw - 2 * gap) / 3;
+  for (int i = 0; i < 3; i++) G.mode[i] = { 8 + i * (bw + gap), 184, bw, bh };
+  G.hintCx = W / 2; G.hintY = 220;
+  int hw = (cw - gap) / 2;
+  G.test = { 8, 238, hw, bh }; G.move = { 8 + hw + gap, 238, hw, bh };
+}
+
+void drawStorageScreen() {
+  lanesStop();
+  tft.fillScreen(TFT_BLACK);
+  drawTitleBar("STORAGE");
+  StorageGeom G; storageGeom(G);
+  uint16_t f = uiCardFill();
+  char a[16], b[16], line[64];
+  // microSD card
+  tft.fillRoundRect(G.card.x, G.card.y, G.card.w, G.card.h, 10, f);
+  tft.waitDMA(); tft.endWrite();
+  bool sdOk = (logStoreMode == 2) ? (sdReady || tryMountSd()) : sdReady;
+  tft.fillCircle(G.card.x + 14, G.card.y + 14, 5, sdOk ? C_OK : C_BAD);
+  tft.setFont(F_M); tft.setTextDatum(ML_DATUM); tft.setTextColor(UI_TEXT, f);
+  tft.drawString("microSD card", G.card.x + 26, G.card.y + 14);
+  tft.setFont(F_XS); tft.setTextColor(UI_MUTE, f);
+  if (sdOk) {
+    fmtBytes(SD.usedBytes(), a, sizeof(a)); fmtBytes(SD.totalBytes(), b, sizeof(b));
+    if (G.card.w < 200) snprintf(line, sizeof(line), "%s of %s", a, b);
+    else snprintf(line, sizeof(line), "%s of %s - %.0f MHz", a, b, sdHzNow / 1000000.0);
+  } else snprintf(line, sizeof(line), "Not found or not working");
+  tft.drawString(line, G.card.x + 12, G.card.y + 32);
+  {
+    tft.setTextColor(sdTestCol ? sdTestCol : UI_DIM, f);
+    String tt = sdTestText; while (tt.length() > 4 && tft.textWidth(tt) > G.card.w - 20) tt.remove(tt.length() - 1);
+    tft.drawString(tt.c_str(), G.card.x + 12, G.card.y + 47);
+  }
+  // board flash
+  uint32_t fb = 0; int fn = countFlashLogs(fb);
+  tft.fillRoundRect(G.flash.x, G.flash.y, G.flash.w, G.flash.h, 10, f);
+  tft.setFont(F_M); tft.setTextDatum(ML_DATUM); tft.setTextColor(UI_TEXT, f);
+  tft.drawString("Board flash", G.flash.x + 12, G.flash.y + 14);
+  fmtBytes(LittleFS.usedBytes(), a, sizeof(a)); fmtBytes(LittleFS.totalBytes(), b, sizeof(b));
+  if (G.flash.w < 200) snprintf(line, sizeof(line), "%d log%s - %s used", fn, fn == 1 ? "" : "s", a);
+  else snprintf(line, sizeof(line), "%d log%s - %s of %s", fn, fn == 1 ? "" : "s", a, b);
+  tft.setFont(F_XS); tft.setTextColor(fn ? C_WARN : UI_MUTE, f);
+  tft.drawString(line, G.flash.x + 12, G.flash.y + 32);
+  // save logs to
+  tft.setTextDatum(BL_DATUM); tft.setTextColor(UI_DIM, TFT_BLACK);
+  tft.drawString("SAVE LOGS TO", G.modeLabelX, G.modeLabelY + 12);
+  static const char* labs[3] = { "AUTO", "CARD", "FLASH" };
+  for (int i = 0; i < 3; i++) drawThemedButton(G.mode[i].x, G.mode[i].y, G.mode[i].w, G.mode[i].h, labs[i], logStoreMode == i ? C_GREEN : getBtnFill(), TFT_WHITE);
+  static const char* hints[3] = { "Card, flash if it fails", "Card only", "Board flash only" };
+  tft.setFont(F_XS); tft.setTextDatum(TC_DATUM); tft.setTextColor(UI_MUTE, TFT_BLACK);
+  tft.drawString(hints[logStoreMode], G.hintCx, G.hintY);
+  drawThemedButton(G.test.x, G.test.y, G.test.w, G.test.h, "TEST CARD", getBtnFill(), TFT_WHITE);
+  drawThemedButton(G.move.x, G.move.y, G.move.w, G.move.h, "MOVE TO CARD", getBtnFill(), fn ? TFT_WHITE : UI_DIM);
+  uiResetFont();
+  drawBackButton("BACK");
+}
+
+static bool inRect(const Rect &r, int x, int y) { return x >= r.x - 3 && x <= r.x + r.w + 3 && y >= r.y - 3 && y <= r.y + r.h + 3; }
+
+void storageTouch(int tx, int ty) {
+  int h = tft.height();
+  StorageGeom G; storageGeom(G);
+  if (tx >= 5 && tx <= 95 && ty >= h - 40 && ty <= h - 5) {
+    currentScreen = SETTINGS_SCREEN; drawSettingsScreen(); beep(1, 60); return;
+  }
+  for (int i = 0; i < 3; i++) if (inRect(G.mode[i], tx, ty)) {
+    if (logStoreMode != i) { logStoreMode = i; saveLogStoreMode(); openLogFS(); }
+    beep(1, 25); drawStorageScreen(); return;
+  }
+  if (inRect(G.test, tx, ty)) { beep(1, 25); sdSelfTest(); beep(sdTestCol == C_OK ? 2 : 1, 60); drawStorageScreen(); return; }
+  if (inRect(G.move, tx, ty)) {
+    uint32_t fb; int fn = countFlashLogs(fb);
+    if (!fn) { beep(1, 15); return; }
+    beep(1, 25);
+    showWdgStatusScreen("Moving logs...", "Board flash to card", "", -1, 0, "STORAGE");
+    uint8_t keep = logStoreMode; if (logStoreMode == 2) logStoreMode = 0;
+    SD.end(); sdReady = false;
+    if (tryMountSd()) migrateFlashLogs(true);
+    logStoreMode = keep; openLogFS();
+    int left = countFlashLogs(fb);
+    char r[40]; snprintf(r, sizeof(r), left ? "%d log(s) could not move" : "All logs are on the card", left);
+    showWdgStatusScreen(left ? "Some logs stayed" : "Done", r, left ? "Run TEST CARD" : "", -1, 0, "STORAGE");
+    delay(1800);
+    drawStorageScreen();
+  }
+}
+
 // ================= SETTINGS: grouped list, drag to scroll =================
 // Each row maps to an action index understood by activateSettingsItem():
 // 0 bright 1 theme 2 orientation 3 portal 4 logs 5 wifi 6 about 7 gps pins 8 touch cal 9 stats 10 pro
@@ -5137,7 +5333,7 @@ static const SetRow SET_ROWS[] = {
   { "Connections", -1, -1 },
   { "Wi-Fi", 5, ICON_WIFI }, { "Web portal", 3, ICON_PORTAL }, { "GPS pins", 7, ICON_PIN },
   { "Your data", -1, -1 },
-  { "Logs", 4, ICON_FOLDER }, { "WDGWars stats", 9, ICON_TROPHY },
+  { "Logs", 4, ICON_FOLDER }, { "Storage", 11, ICON_FOLDER }, { "WDGWars stats", 9, ICON_TROPHY },
   { "Advanced", -1, -1 },
   { "Pro mode", 10, ICON_SHIELD }, { "About & safety", 6, ICON_ALERT },
 };
@@ -5166,6 +5362,7 @@ void settingsValue(int action, char* out, size_t n) {
     case 4: snprintf(out, n, "%s", sdReady ? "SD card" : "Flash"); break;
     case 5: snprintf(out, n, "%s", WiFi.status() == WL_CONNECTED ? "Connected" : (homeSSID.length() ? homeSSID.c_str() : "Not set")); break;
     case 7: snprintf(out, n, "%d / %d", gpsRxPin, gpsTxPin); break;
+    case 11: snprintf(out, n, "%s", logStoreMode == 1 ? "Card" : (logStoreMode == 2 ? "Flash" : "Auto")); break;
     case 10: snprintf(out, n, "%s", proMode ? "On" : "Off"); break;
     default: break;
   }
@@ -6815,7 +7012,8 @@ void setup() {
   touch.setRotation(0);
 
   delay(80);
-  openLogFS();          // SD if present, else internal flash
+  loadLogStoreMode();
+  openLogFS();          // SD if present, else internal flash (Settings > Storage)
   loadHomeWifi();
 
   loadGpsPins();
@@ -7341,6 +7539,7 @@ void loop() {
         }
       }
 
+      else if (currentScreen == STORAGE_SCREEN) { storageTouch(tx, ty); }
       else if (currentScreen == GPS_PINS_SCREEN) {
         int w = tft.width();
         int h = tft.height();
