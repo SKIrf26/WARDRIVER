@@ -370,8 +370,9 @@ int wifiScanRSSI[20];
 String pendingSSID = "";
 String pendingPass = "";
 
-bool fileSelected[40];
-String fileNames[40];
+#define MAX_LOG_FILES 120
+bool fileSelected[MAX_LOG_FILES];
+String fileNames[MAX_LOG_FILES];
 
 int uploadOneCsvToWdg(const String& path);
 void doWdgUploadFromDevice();
@@ -1775,8 +1776,49 @@ bool tryMountSd() {
   return false;
 }
 
+// Logs a run had to save in the board's flash (card missing or failing at the time) are
+// moved onto the card as soon as it works again, so the Logs list, the portal and uploads
+// (which use the card when there is one) never lose sight of them.
+bool isCsvName(const String& name);
+static void migrateFlashLogs() {
+  if (wardriveActive) return;
+  static unsigned long lastTry = 0;
+  if (lastTry && millis() - lastTry < 5000) return;
+  lastTry = millis();
+  if (!LittleFS.begin(false)) return;
+  String names[16]; int n = 0;
+  File root = LittleFS.open("/");
+  if (root) {
+    File f = root.openNextFile();
+    while (f && n < 16) {
+      String name = f.name(); if (name.startsWith("/")) name = name.substring(1);
+      if (!f.isDirectory() && isCsvName(name)) names[n++] = name;
+      f = root.openNextFile();
+    }
+    root.close();
+  }
+  for (int i = 0; i < n; i++) {
+    String path = "/" + names[i];
+    tft.waitDMA(); tft.endWrite();
+    File src = LittleFS.open(path, FILE_READ);
+    if (!src) continue;
+    String dstPath = path;
+    if (SD.exists(dstPath)) dstPath = "/" + names[i].substring(0, names[i].length() - 4) + "_flash.csv";
+    File dst = SD.open(dstPath, FILE_WRITE);
+    bool ok = (bool)dst;
+    uint8_t buf[512];
+    while (ok && src.available()) { int k = src.read(buf, sizeof(buf)); if (k <= 0) break; ok = dst.write(buf, k) == (size_t)k; }
+    size_t want = src.size();
+    src.close();
+    if (dst) dst.close();
+    if (ok) { File chk = SD.open(dstPath, FILE_READ); ok = chk && chk.size() == want; if (chk) chk.close(); }
+    if (ok) { LittleFS.remove(path); Serial.printf("Moved %s from board flash to the card\n", names[i].c_str()); }
+    else Serial.printf("Could not move %s to the card (left in flash)\n", names[i].c_str());
+  }
+}
+
 bool openLogFS() {
-  if (tryMountSd()) { logUseLittleFS = false; return true; }
+  if (tryMountSd()) { logUseLittleFS = false; migrateFlashLogs(); return true; }
   if (LittleFS.begin(true)) { logUseLittleFS = true; return true; }
   return false;
 }
@@ -1795,7 +1837,9 @@ File openLogFile(const char* path, const char* mode) {
 static char wdLogBuf[4096];
 static size_t wdLogLen = 0;
 
-bool wdLogFailed = false;          // last write to the log did not reach the card (shown on the run screen)
+bool wdLogFailed = false;
+String wdLogSummary = "";          // run report: "152 rows saved to microSD"
+uint16_t wdLogSummaryCol = 0;          // last write to the log did not reach the card (shown on the run screen)
 static const char WD_CSV_HEADER[] =
   "WigleWifi-1.6,appRelease=" SKIRF_APP_RELEASE ",model=NM-CYD-C5,release=" SKIRF_APP_RELEASE
   ",device=SKIrf-Wardriver,display=ST7789,board=ESP32-C5,brand=SKIrf,star=Sol,body=3,subBody=0\n"
@@ -2168,6 +2212,21 @@ void stopWardriving() {
   scanPhase = 0;
   wdLogFlush();
   wardriveActive = false;
+  {   // where did this run's log end up? (shown on the run report)
+    String shortName = wardriveFile; if (shortName.startsWith("/")) shortName = shortName.substring(1);
+    if (rowsLogged == 0) {
+      tft.waitDMA(); tft.endWrite();
+      if (wardriveFile.length() && logFs().exists(wardriveFile)) logFs().remove(wardriveFile);   // header only: nothing to upload
+      wdLogSummary = gpsValid ? "No log: nothing was found" : "No log: the GPS had no fix";
+      wdLogSummaryCol = C_WARN;
+    } else if (wdLogFailed) {
+      wdLogSummary = "Log NOT saved - check the card"; wdLogSummaryCol = C_BAD;
+    } else {
+      wdLogSummary = String(rowsLogged) + " rows saved to " + (logUseLittleFS ? "board flash" : "microSD");
+      wdLogSummaryCol = logUseLittleFS ? C_WARN : C_OK;
+    }
+    Serial.printf("Run log %s: %s\n", shortName.c_str(), wdLogSummary.c_str());
+  }
 
   uint32_t total = sessionUnique();
   wdLastSessionTotal = total;
@@ -3373,6 +3432,10 @@ void drawSummaryScreen() {
     if (mins > 0.1f) snprintf(c, sizeof(c), "%.0f/min", wdLastSessionTotal / mins); else snprintf(c, sizeof(c), "--");
     drawStatTile(gx, y + 2 * (th + gap), tw, th, "Distance", b, UI_MUTE, -1);
     drawStatTile(gx + tw + gap, y + 2 * (th + gap), tw, th, "Rate", c, UI_MUTE, -1);
+    if (wdLogSummary.length()) {
+      tft.setFont(F_XS); tft.setTextDatum(BL_DATUM); tft.setTextColor(wdLogSummaryCol, TFT_BLACK);
+      tft.drawString(wdLogSummary.c_str(), 12, y + heroH + 2); uiResetFont();
+    }
     drawThemedButton(dr.x, dr.y, dr.w, dr.h, "DONE", C_GREEN, TFT_WHITE);
     return;
   }
@@ -3417,8 +3480,14 @@ void drawSummaryScreen() {
   tft.setFont(F_XS);
   tft.setTextDatum(MC_DATUM);
   tft.setTextColor(UI_MUTE, TFT_BLACK);
+  bool hasLog = wdLogSummary.length() > 0;
+  bool both = !hasLog || (y + 6 + 13 <= d.y - 10);       // room for the records line and the log line?
   int ly = min(y + 6, d.y - 10);
-  tft.drawString(line, W / 2, ly);
+  if (both) { tft.drawString(line, W / 2, ly); if (hasLog) ly += 13; }
+  if (hasLog) {
+    tft.setTextColor(wdLogSummaryCol, TFT_BLACK);
+    tft.drawString(wdLogSummary.c_str(), W / 2, ly);
+  }
   if (wdBestName[0] && !land && ly + 14 < d.y - 4) {
     char bl[48];
     snprintf(bl, sizeof(bl), "Strongest: %.20s (%d dBm)", wdBestName, wdBestRssi);
@@ -4271,25 +4340,30 @@ void showWdgStatusScreen(const char* line1, const char* line2 = "", const char* 
 // On-device WDGWars upload (needs home WiFi + API key)
 
 void loadCsvFileList() {
+  openLogFS();                         // remounts the card and moves any logs saved in flash onto it
   fileBrowserCount = 0;
-  for (int i = 0; i < 40; i++) { fileSelected[i] = false; fileNames[i] = ""; }
+  for (int i = 0; i < MAX_LOG_FILES; i++) { fileSelected[i] = false; fileNames[i] = ""; }
   File root = logFs().open("/");
   if (!root) return;
   File f = root.openNextFile();
-  while (f && fileBrowserCount < 40) {
+  while (f && fileBrowserCount < MAX_LOG_FILES) {
     if (!f.isDirectory()) {
       String name = f.name();
       if (name.startsWith("/")) name = name.substring(1);
       String lower = name; lower.toLowerCase();
-      if (lower.endsWith(".csv")) {
-        fileNames[fileBrowserCount] = name;
-        fileSelected[fileBrowserCount] = false;
-        fileBrowserCount++;
-      }
+      if (lower.endsWith(".csv")) fileNames[fileBrowserCount++] = name;
     }
     f = root.openNextFile();
   }
   root.close();
+  // newest first: SKIrf_WD_<ride>_<yyyymmdd>_<hhmmss>.csv sorts by its date part
+  auto key = [](const String &n) { int i = n.indexOf('_', 9); return (n.startsWith("SKIrf_WD_") && i > 0) ? n.substring(i + 1) : String(""); };
+  for (int i = 1; i < fileBrowserCount; i++) {
+    String cur = fileNames[i], ck = key(cur);
+    int j = i - 1;
+    while (j >= 0 && key(fileNames[j]) < ck) { fileNames[j + 1] = fileNames[j]; j--; }
+    fileNames[j + 1] = cur;
+  }
   fileBrowserScroll = 0; filesScrollPx = 0;
 }
 
@@ -4660,12 +4734,12 @@ void doWdgUploadFromDevice() {
 
   showWdgStatusScreen("Uploading CSVs...", WiFi.localIP().toString().c_str(), "Do not power off");
 
-  String names[40];
+  static String names[MAX_LOG_FILES];
   int n = 0;
   File root = logFs().open("/");
   if (root) {
     File f = root.openNextFile();
-    while (f && n < 40) {
+    while (f && n < MAX_LOG_FILES) {
       if (!f.isDirectory()) {
         String name = f.name();
         if (name.startsWith("/")) name = name.substring(1);
@@ -5580,9 +5654,9 @@ void handleDownloadAll() {
   }
 
   // Collect CSV filenames: the ones asked for (?f=a.csv&f=b.csv), or all of them
-  String names[40];
+  static String names[MAX_LOG_FILES];
   int nFiles = 0;
-  for (int i = 0; i < server.args() && nFiles < 40; i++) {
+  for (int i = 0; i < server.args() && nFiles < MAX_LOG_FILES; i++) {
     if (server.argName(i) != "f") continue;
     String nm = server.arg(i);
     if (safeCsvPath(nm) && logFs().exists("/" + nm)) names[nFiles++] = nm;
@@ -5590,7 +5664,7 @@ void handleDownloadAll() {
   File root = nFiles ? File() : logFs().open("/");
   if (root) {
     File f = root.openNextFile();
-    while (f && nFiles < 40) {
+    while (f && nFiles < MAX_LOG_FILES) {
       if (!f.isDirectory()) {
         String name = f.name();
         if (name.startsWith("/")) name = name.substring(1);
@@ -5992,11 +6066,11 @@ void doWigleUploadFromDevice() {
     }
   }
   showWdgStatusScreen("Wigle uploading...", WiFi.localIP().toString().c_str(), "Do not power off");
-  String names[40]; int n = 0;
+  static String names[MAX_LOG_FILES]; int n = 0;
   File root = logFs().open("/");
   if (root) {
     File f = root.openNextFile();
-    while (f && n < 40) {
+    while (f && n < MAX_LOG_FILES) {
       if (!f.isDirectory()) {
         String name = f.name();
         if (name.startsWith("/")) name = name.substring(1);
@@ -6118,7 +6192,7 @@ static inline void portalHit() { portalLastHitMs = millis(); sdBusFree(); }   //
 bool upJobPending = false;
 unsigned long upJobAt = 0;
 String upJobTarget = "";
-String upJobFiles[40];
+String upJobFiles[MAX_LOG_FILES];
 int upJobN = 0;                              // 0 = every log
 String upLastReport = "";                    // JSON object shown on the portal's Upload tab
 
@@ -6192,8 +6266,8 @@ static int listCsv(String* names, int maxN, uint32_t* sizes = nullptr) {
 void handleApiStatus() {
   portalHit();
   openLogFS();
-  static String names[80]; static uint32_t sizes[80];
-  int n = listCsv(names, 80, sizes);
+  static String names[MAX_LOG_FILES]; static uint32_t sizes[MAX_LOG_FILES];
+  int n = listCsv(names, MAX_LOG_FILES, sizes);
   bool sd = !logUseLittleFS && sdReady;
   uint64_t used = sd ? SD.usedBytes() : LittleFS.usedBytes();
   uint64_t total = sd ? SD.totalBytes() : LittleFS.totalBytes();
@@ -6251,8 +6325,8 @@ void handleApiDelete() {
   portalHit();
   int deleted = 0;
   if (server.hasArg("all")) {
-    static String names[80];
-    int n = listCsv(names, 80);
+    static String names[MAX_LOG_FILES];
+    int n = listCsv(names, MAX_LOG_FILES);
     for (int i = 0; i < n; i++) if (logFs().remove("/" + names[i])) deleted++;
   } else {
     for (int i = 0; i < server.args(); i++) {
@@ -6274,7 +6348,7 @@ void handleApiUpload() {
   if (target != "wigle" && wdgApiKey.length() < 8) { webJson(400, false, "Add your WDGWars API key first"); return; }
   if (wardriveActive) { webJson(409, false, "Stop the run on the board first"); return; }
   upJobN = 0;
-  for (int i = 0; i < server.args() && upJobN < 40; i++) {
+  for (int i = 0; i < server.args() && upJobN < MAX_LOG_FILES; i++) {
     if (server.argName(i) != "f") continue;
     String nm = server.arg(i);
     if (safeCsvPath(nm)) upJobFiles[upJobN++] = nm;
@@ -6290,7 +6364,7 @@ void runUploadJob() {
   upJobPending = false;
   portalCountdownActive = false;
   bool doWigle = upJobTarget != "wdg", doWdg = upJobTarget != "wigle";
-  if (upJobN == 0) { upJobN = listCsv(upJobFiles, 40); }
+  if (upJobN == 0) { upJobN = listCsv(upJobFiles, MAX_LOG_FILES); }
   int n = upJobN;
   Serial.printf("Portal upload job: %d file(s) to %s\n", n, upJobTarget.c_str());
   showWdgStatusScreen("Joining Wi-Fi...", homeSSID.c_str(), "Please wait");

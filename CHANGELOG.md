@@ -6,6 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- Logs could go missing from the Logs list, the portal and uploads: the board listed only the first 40 files on the card in the card's own order, so new runs could fall off the end, and a run that had to fall back to the board's flash was invisible once the card was back. The list now holds 120 logs, newest first; logs saved in flash are moved onto the card as soon as it works again; and a run that logged nothing (no GPS fix) no longer leaves an empty file behind.
 - Uploads failed with "memory allocation failed": a TLS connection needs 40-50 KB and the chip's internal RAM had about 45 KB left with Wi-Fi, the display and the SD card running. mbedTLS now takes its larger blocks (512 bytes and up) from the 8 MB PSRAM, as ESP-IDF's CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC would.
 - Uploads now say why they failed: Wi-Fi dropped, the server name could not be looked up (no internet), the secure connection failed (with the TLS error and free memory), or the server's own reply (for example "401 Unauthorized - <message>"). WiGLE replies of 200 with "success":false now count as failures. The secure connection is retried once. The reason shows on the board's upload screens (wrapped over up to three lines) and under each file in the portal's Upload tab.
 - Wi-Fi scans came back empty, joining the home network failed and uploads failed after a run: the Bluetooth stack stayed up after the run and kept its memory, while Wi-Fi is fully shut down when idle and has to start again for every scan or join. Bluetooth is now shut down when a run ends, and every scan, join and upload starts the Wi-Fi with full power (the portal hotspot runs at 8.5 dBm), 2.4 + 5 GHz and the Wi-Fi country set.
@@ -28,6 +29,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GPS: satellites in view are also read from $GNGSV sentences.
 
 ### Added
+- Run report: says where the log went ("206 rows saved to microSD", "... to board flash", "No log: the GPS had no fix", or "Log NOT saved").
 - Web portal redesigned to match the board: one page with Logs, Upload and Setup tabs, in the board's theme colours and font. Shows log count and size, storage use, GPS and your records; logs are listed by date with their ride, and can be selected to upload, download as one .zip, or delete. Confirmations and messages appear in the page instead of browser pop-ups.
 - GPS screen: "Moved N sec ago" shows how long ago the module last reported a new position; latitude and longitude show 6 decimals.
 - GPS screen: link health for the last 5 seconds: Fix % (position sentences that carried a fix), HDOP, bad sentences, lost bytes and the longest main-loop delay. The same numbers are on the Serial Monitor's "GPS:" line.
