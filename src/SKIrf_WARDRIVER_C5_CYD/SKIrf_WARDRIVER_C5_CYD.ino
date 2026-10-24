@@ -395,6 +395,7 @@ void loadCsvFileList();
 // Home WiFi (station) credentials — saved on SD
 String homeSSID = "";
 String lastWdgError = "", lastWigleError = "";   // reason the last upload of a file failed
+unsigned long homeLanGraceMs = 0;   // when the board joined the home network (keeps it up a while for the portal page)
 String wifiFailReason = "";   // why the last Wi-Fi scan or join failed (shown on screen)
 String homePass = "";
 bool homeWifiConnected = false;
@@ -4758,7 +4759,7 @@ void drawWifiScreen() {
   }
   if (!landscape && ch >= 90) {
     tft.setTextColor(UI_DIM, fill);
-    tft.drawString(connected ? "Uploads ready" : "Connect to upload logs", 20, cy + ch - 18);
+    tft.drawString(connected ? ("Portal: http://" + homeWifiIP).c_str() : "Connect to upload logs", 20, cy + ch - 18);
   }
   uiResetFont();
 
@@ -5991,6 +5992,8 @@ bool tryConnectHomeWifi(uint32_t timeoutMs) {
     userWantsHomeWifi = true;
     homeWifiIP = WiFi.localIP().toString();
     Serial.printf("WiFi OK IP=%s RSSI=%d\n", homeWifiIP.c_str(), WiFi.RSSI());
+    portalServerStart();                 // the portal page at http://<this IP>/ on the home network
+    homeLanGraceMs = millis();
     return true;
   }
 
@@ -6798,6 +6801,45 @@ void handleReturn() {
   webJson(200, true, "Back to the board");
 }
 
+// The portal's web server: the same page and API on the board's hotspot (192.168.4.1) and,
+// while the board is on your home network, at its address there. Routes are registered once.
+bool portalRoutesReady = false, portalServerUp = false;
+void portalServerStart() {
+  if (!portalRoutesReady) {
+  server.on("/", handleRoot);
+    server.on("/theme.css", handleThemeCss);
+    server.on("/f/m.woff2", handleFontM);
+    server.on("/f/b.woff2", handleFontB);
+    server.on("/logo.png", handleLogo);
+    server.on("/favicon.png", handleFavicon);
+    server.on("/favicon.ico", handleFavicon);
+    server.on("/api/status", handleApiStatus);
+    server.on("/api/wifi", HTTP_POST, handleApiWifi);
+    server.on("/api/wigle", HTTP_POST, handleApiWigle);
+    server.on("/api/wdg", HTTP_POST, handleApiWdg);
+    server.on("/api/delete", HTTP_POST, handleApiDelete);
+    server.on("/api/upload", HTTP_POST, handleApiUpload);
+    server.on("/download", []() { portalHit(); handleDownload(); });
+    server.on("/downloadall", []() { portalHit(); handleDownloadAll(); });
+    server.on("/delete", []() { portalHit(); handleDelete(); });
+    server.on("/return", handleReturn);
+    // Captive-portal style: any unknown path -> main page
+    server.onNotFound([]() {
+      // captive-portal style on the hotspot; on the home network, unknown paths go to the page
+      server.sendHeader("Location", apActive ? "http://192.168.4.1/" : "/", true);
+      server.send(302, "text/plain", "");
+    });
+    portalRoutesReady = true;
+  }
+  // always a fresh listening socket: the Wi-Fi driver may have been restarted since the last start
+  if (portalServerUp) server.stop();
+  server.begin(); portalServerUp = true;
+  Serial.println("Web portal server up");
+}
+void portalServerStop() {
+  if (portalServerUp) { server.stop(); portalServerUp = false; }
+}
+
 // ---------- Web portal hotspot + 60 s countdown screen ----------
 void startPortalAP() {
   // Pure AP during portal so 192.168.4.1 always works for clients.
@@ -6829,31 +6871,7 @@ void startPortalAP() {
   Serial.print("AP started: SKIrf_WARDRIVER  IP=");
   Serial.println(ip);
 
-  // Clear old routes then register
-  server.stop();
-  server.on("/", handleRoot);
-  server.on("/theme.css", handleThemeCss);
-  server.on("/f/m.woff2", handleFontM);
-  server.on("/f/b.woff2", handleFontB);
-  server.on("/logo.png", handleLogo);
-  server.on("/favicon.png", handleFavicon);
-  server.on("/favicon.ico", handleFavicon);
-  server.on("/api/status", handleApiStatus);
-  server.on("/api/wifi", HTTP_POST, handleApiWifi);
-  server.on("/api/wigle", HTTP_POST, handleApiWigle);
-  server.on("/api/wdg", HTTP_POST, handleApiWdg);
-  server.on("/api/delete", HTTP_POST, handleApiDelete);
-  server.on("/api/upload", HTTP_POST, handleApiUpload);
-  server.on("/download", []() { portalHit(); handleDownload(); });
-  server.on("/downloadall", []() { portalHit(); handleDownloadAll(); });
-  server.on("/delete", []() { portalHit(); handleDelete(); });
-  server.on("/return", handleReturn);
-  // Captive-portal style: any unknown path -> main page
-  server.onNotFound([]() {
-    server.sendHeader("Location", "http://192.168.4.1/", true);
-    server.send(302, "text/plain", "");
-  });
-  server.begin();
+  portalServerStart();
 
   apActive = true;
   apStartTime = millis();
@@ -7060,7 +7078,7 @@ void stopPortalAP() {
     WiFi.mode(WIFI_STA);
     Serial.println("AP stopped — home WiFi still up");
   } else {
-    server.stop();
+    portalServerStop();
     WiFi.disconnect();
     WiFi.mode(WIFI_OFF);          // radio silent until a run or Wi-Fi screen needs it (GPS-friendly)
     Serial.println("AP stopped, Wi-Fi radio off");
@@ -7299,8 +7317,13 @@ void loop() {
       static unsigned long wifiNeededMs = 0;
       bool wifiScreen = (currentScreen == WIFI_SCREEN || currentScreen == WIFI_SCAN_SCREEN || currentScreen == WIFI_PASS_SCREEN || currentScreen == GAME_STATS_SCREEN);
       if (wifiScreen || wardriveActive || apActive) wifiNeededMs = millis();
+      // the portal page on the home network: keep Wi-Fi up for 2 minutes after joining, and
+      // while a browser uses the page (it polls every 8 s)
+      if (homeWifiConnected && ((homeLanGraceMs && millis() - homeLanGraceMs < 120000) ||
+                                (portalLastHitMs && millis() - portalLastHitMs < 30000))) wifiNeededMs = millis();
       if (!wardriveActive && !apActive && !wifiScreen && millis() - wifiNeededMs > 20000 && WiFi.getMode() != WIFI_OFF) {
         if (homeWifiConnected) WiFi.disconnect(true);
+        portalServerStop();
         WiFi.mode(WIFI_OFF);
         homeWifiConnected = false; homeWifiIP = ""; userWantsHomeWifi = false;
         Serial.println("Wi-Fi radio off (idle)");

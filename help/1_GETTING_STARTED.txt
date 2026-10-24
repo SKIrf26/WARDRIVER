@@ -45,7 +45,8 @@ tabs:
   Upload   send selected or all logs to WiGLE, WDGWars or both (the board then leaves the hotspot, joins your home
            Wi-Fi, shows the progress on its screen and turns Wi-Fi off again; open the portal later to see results)
   Setup    home Wi-Fi, WiGLE API name and token, WDGWars API key, the run journal, delete all logs
-Open it again any time from Settings > Web portal.
+Open it again any time from Settings > Web portal. When the board is on your home Wi-Fi (Settings > Wi-Fi > CONNECT),
+the same page is at the address shown on the Wi-Fi screen.
 
 Uploading your runs
 -------------------

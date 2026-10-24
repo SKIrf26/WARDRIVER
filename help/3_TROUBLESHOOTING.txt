@@ -80,6 +80,8 @@ G. I cannot reach the web portal
    - Some phones leave networks without internet: turn off "auto-switch to mobile data" or "Wi-Fi assist" while
      connected, or use a laptop.
    - After you start an upload from the portal the board leaves the hotspot on purpose; the phone loses the page.
+   - On your home network: connect from Settings > Wi-Fi, then open the address shown there ("Portal: http://...")
+     from a device on the same network, within 2 minutes. Wi-Fi stays on while the page is open.
 
 H. Upload to WiGLE or WDGWars fails
    - The board's last upload screen and the portal's Upload tab say why:
