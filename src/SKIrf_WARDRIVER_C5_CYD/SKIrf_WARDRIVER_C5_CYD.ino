@@ -2172,6 +2172,8 @@ void scopeAddBlip(const char* mac, int rssi, uint8_t kind);
 // ---------- Wi-Fi: direct ESP-IDF scan ----------
 volatile bool wdWifiScanDone = false;
 volatile bool wdBleScanDone = false;
+bool wdBleFailed = false;          // Bluetooth could not start or would not scan this run (shown on the run screen)
+uint16_t wdBleStartFails = 0;
 bool wdScanEvtRegistered = false;
 
 static void wdScanDoneEvt(void*, esp_event_base_t, int32_t, void*) { wdWifiScanDone = true; }
@@ -2253,7 +2255,14 @@ bool wdStartBleScan() {
   pBLEScan->setWindow(duty == 0 ? 60 : 79);    // near 100% duty while BLE owns the radio
   wdBleScanDone = false;
   uint32_t sec = proMode ? (duty == 2 ? 2 : 1) : wdBleSec;
-  return pBLEScan->start(sec, wdBleDoneCb, false);
+  bool ok = pBLEScan->start(sec, wdBleDoneCb, false);
+  if (!ok) {
+    wdBleStartFails++;
+    if (wdBleStartFails == 1 || wdBleStartFails % 20 == 0)
+      Serial.printf("BLE scan would not start (%u times, internal RAM %u KB)\n", wdBleStartFails, (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
+    if (wdBleStartFails >= 3) wdBleFailed = true;
+  } else { wdBleStartFails = 0; wdBleFailed = false; }
+  return ok;
 }
 
 void wdHarvestBle() {
@@ -2318,6 +2327,17 @@ void startWardriving() {
   else
     Serial.println("CSV not created - UI will still show live counts");
 
+  // Bluetooth first, while the on-chip RAM is free: its controller needs a block of it, and
+  // with Wi-Fi already running it could fail to start, leaving the run with 0 Bluetooth.
+  wdBleFailed = false; wdBleStartFails = 0;
+  if (pBLEScan == nullptr) {
+    if (BLEDevice::init("")) pBLEScan = BLEDevice::getScan();
+    else {
+      wdBleFailed = true;
+      Serial.printf("BLE did not start (internal RAM %u KB) - this run is Wi-Fi only\n", (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
+    }
+  }
+
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   delay(60);
@@ -2327,10 +2347,6 @@ void startWardriving() {
 #endif
   esp_wifi_set_country_code(SKIRF_WIFI_COUNTRY, false);
 
-  if (pBLEScan == nullptr) {
-    BLEDevice::init("");
-    pBLEScan = BLEDevice::getScan();
-  }
 
   wardriveActive = true;
   sessionWifiTotal = sessionWifi24Total = sessionWifi5Total = sessionBleTotal = 0;
@@ -3206,6 +3222,7 @@ const char* wdStatusText() {
   static char st[36];
   if (!wardriveActive) return "READY";
   if (wdLogFailed) return "LOG NOT SAVING";
+  if (wdBleFailed && wdDoBle && (millis() / 2500) % 2) return "BLUETOOTH NOT SCANNING";
   if (wdWaitingGps || !proGpsAccOk()) return gpsValid ? "WAIT GPS SATS" : "WAITING FOR GPS";
   if (scanPhase == 1) {
     int mode = (proMode && proChanMode != 0) ? proChanMode : wdChanFilter;
@@ -3219,6 +3236,7 @@ const char* wdStatusText() {
 uint16_t wdStatusColor() {
   if (!wardriveActive) return UI_MUTE;
   if (wdLogFailed) return C_BAD;
+  if (wdBleFailed && wdDoBle && (millis() / 2500) % 2) return C_WARN;
   if (wdWaitingGps || !proGpsAccOk()) return C_WARN;
   return C_OK;
 }
