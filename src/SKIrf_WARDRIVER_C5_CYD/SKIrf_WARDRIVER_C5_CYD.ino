@@ -2174,6 +2174,10 @@ volatile bool wdWifiScanDone = false;
 volatile bool wdBleScanDone = false;
 bool wdBleFailed = false;          // Bluetooth could not start or would not scan this run (shown on the run screen)
 uint16_t wdBleStartFails = 0;
+bool wdBleRecoverTried = false;
+String wdBleErr = "";              // why Bluetooth is off this run, e.g. "start failed, 38 KB free"
+extern "C" int ble_hs_synced(void);
+extern "C" int ble_gap_disc_active(void);
 bool wdScanEvtRegistered = false;
 
 static void wdScanDoneEvt(void*, esp_event_base_t, int32_t, void*) { wdWifiScanDone = true; }
@@ -2258,10 +2262,22 @@ bool wdStartBleScan() {
   bool ok = pBLEScan->start(sec, wdBleDoneCb, false);
   if (!ok) {
     wdBleStartFails++;
+    unsigned kb = (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024);
+    if (!ble_hs_synced()) wdBleErr = "host not ready, " + String(kb) + " KB free";
+    else if (ble_gap_disc_active()) wdBleErr = "scan stuck";
+    else wdBleErr = "scan refused, " + String(kb) + " KB free";
     if (wdBleStartFails == 1 || wdBleStartFails % 20 == 0)
-      Serial.printf("BLE scan would not start (%u times, internal RAM %u KB)\n", wdBleStartFails, (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
+      Serial.printf("BLE scan would not start (%u times): %s\n", wdBleStartFails, wdBleErr.c_str());
+    if (wdBleStartFails >= 3 && !wdBleRecoverTried) {
+      // one recovery per run: restart the Bluetooth stack between sweeps
+      wdBleRecoverTried = true;
+      Serial.println("BLE: restarting the stack once");
+      bleShutdown();
+      if (BLEDevice::init("")) { pBLEScan = BLEDevice::getScan(); wdBleStartFails = 0; }
+      else wdBleErr = "restart failed, " + String((unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024)) + " KB free";
+    }
     if (wdBleStartFails >= 3) wdBleFailed = true;
-  } else { wdBleStartFails = 0; wdBleFailed = false; }
+  } else { wdBleStartFails = 0; wdBleFailed = false; wdBleErr = ""; }
   return ok;
 }
 
@@ -2329,11 +2345,12 @@ void startWardriving() {
 
   // Bluetooth first, while the on-chip RAM is free: its controller needs a block of it, and
   // with Wi-Fi already running it could fail to start, leaving the run with 0 Bluetooth.
-  wdBleFailed = false; wdBleStartFails = 0;
+  wdBleFailed = false; wdBleStartFails = 0; wdBleRecoverTried = false; wdBleErr = "";
   if (pBLEScan == nullptr) {
     if (BLEDevice::init("")) pBLEScan = BLEDevice::getScan();
     else {
       wdBleFailed = true;
+      wdBleErr = "start failed, " + String((unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024)) + " KB free";
       Serial.printf("BLE did not start (internal RAM %u KB) - this run is Wi-Fi only\n", (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
     }
   }
@@ -3222,7 +3239,7 @@ const char* wdStatusText() {
   static char st[36];
   if (!wardriveActive) return "READY";
   if (wdLogFailed) return "LOG NOT SAVING";
-  if (wdBleFailed && wdDoBle && (millis() / 2500) % 2) return "BLUETOOTH NOT SCANNING";
+  if (wdBleFailed && wdDoBle) { snprintf(st, sizeof(st), "BT OFF: %s", wdBleErr.length() ? wdBleErr.c_str() : "not scanning"); return st; }
   if (wdWaitingGps || !proGpsAccOk()) return gpsValid ? "WAIT GPS SATS" : "WAITING FOR GPS";
   if (scanPhase == 1) {
     int mode = (proMode && proChanMode != 0) ? proChanMode : wdChanFilter;
@@ -3236,7 +3253,7 @@ const char* wdStatusText() {
 uint16_t wdStatusColor() {
   if (!wardriveActive) return UI_MUTE;
   if (wdLogFailed) return C_BAD;
-  if (wdBleFailed && wdDoBle && (millis() / 2500) % 2) return C_WARN;
+  if (wdBleFailed && wdDoBle) return C_WARN;
   if (wdWaitingGps || !proGpsAccOk()) return C_WARN;
   return C_OK;
 }

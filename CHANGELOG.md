@@ -6,6 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- Bluetooth problems are now shown steadily on the run screen as BT OFF: <reason> (start failed / host not ready / scan refused / scan stuck, with the free on-chip RAM), and the board restarts the Bluetooth stack once per run before giving up.
 - Bluetooth could count 0 for a whole run: the Bluetooth controller was started after Wi-Fi, when too little on-chip RAM was left for it, and both a failed start and refused scans were ignored. Bluetooth now starts before Wi-Fi at the beginning of a run, failures are checked, and the run screen alternates its status with BLUETOOTH NOT SCANNING when Bluetooth is not working (the Serial Monitor prints the free RAM).
 - WDGWars stats always said the API key was rejected: the check on the /api/me reply was inverted, so every successful reply ({"ok": true, "username": ...}) was treated as a refusal. Stats now load; a real refusal shows the server's error or HTTP status.
 - The web portal did not open on the home network: its server only ran while the board's own hotspot was up, and Wi-Fi switched off 20 s after leaving the Wi-Fi screens. The portal now also starts whenever the board joins your home Wi-Fi, at the address shown on the Wi-Fi screen ("Portal: http://..."); Wi-Fi stays on for 2 minutes after joining and while the page is open. Routes are registered once and the server restarts cleanly after Wi-Fi restarts.
