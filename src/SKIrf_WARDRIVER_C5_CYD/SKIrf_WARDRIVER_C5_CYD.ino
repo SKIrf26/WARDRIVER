@@ -5054,8 +5054,12 @@ body_done:
     return false;
   }
 
-  if (doc["ok"] != !doc.containsKey("username")) {
-    const char* er = doc["error"] | "API rejected key";
+  // Success is {"ok": true, "username": ...} (as WDGWars' own client reads it). The old test
+  // here was inverted and reported every good reply as a rejected key.
+  bool apiOk = doc["ok"] | false;
+  if (!apiOk && !doc["username"].is<const char*>()) {
+    String er = doc["error"] | "";
+    if (!er.length()) er = httpReason(statusLine, "");
     errOut = er;
     wdgMeStatus = errOut;
     return false;

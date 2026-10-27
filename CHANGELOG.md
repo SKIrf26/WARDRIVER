@@ -6,6 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- WDGWars stats always said the API key was rejected: the check on the /api/me reply was inverted, so every successful reply ({"ok": true, "username": ...}) was treated as a refusal. Stats now load; a real refusal shows the server's error or HTTP status.
 - The web portal did not open on the home network: its server only ran while the board's own hotspot was up, and Wi-Fi switched off 20 s after leaving the Wi-Fi screens. The portal now also starts whenever the board joins your home Wi-Fi, at the address shown on the Wi-Fi screen ("Portal: http://..."); Wi-Fi stays on for 2 minutes after joining and while the page is open. Routes are registered once and the server restarts cleanly after Wi-Fi restarts.
 - Logs could be lost: when the card came back, logs saved in the board's flash were copied to the card and the flash copy deleted after a quick size check, so a copy that never really reached the card took the log with it. The board now never deletes a flash log by itself. MOVE TO CARD copies, re-mounts the card, compares every byte, and only then deletes the flash copy, and says what failed if it could not.
 - The Logs list, the portal, uploads, downloads and deletes now cover logs on the card and in the board's flash together; logs only in flash are tagged FLASH. A log no longer disappears from view when the board switches stores.
