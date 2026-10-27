@@ -373,7 +373,20 @@ String pendingPass = "";
 
 #define MAX_LOG_FILES 120
 bool fileSelected[MAX_LOG_FILES];
-String fileNames[MAX_LOG_FILES];
+// Log-name lists live in PSRAM: seven 120-entry String arrays used to sit in on-chip RAM for
+// good, and the radios ran out of it (Wi-Fi or Bluetooth would not start during a run).
+String* psStringArray(size_t n) {
+  void* m = heap_caps_calloc(n, sizeof(String), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!m) m = calloc(n, sizeof(String));
+  String* a = (String*)m;
+  for (size_t i = 0; i < n; i++) new (&a[i]) String();
+  return a;
+}
+String* fileNames = nullptr;    // allocated in setup(): PSRAM is not ready for global initialisers
+String* upJobFiles = nullptr;   // logs queued for an upload started from the portal
+String* logNameScratch() { static String* s = nullptr; if (!s) s = psStringArray(MAX_LOG_FILES); return s; }
+// Free the name strings (their text sits in on-chip RAM) before a run needs the memory.
+void freeLogNameLists();
 
 int uploadOneCsvToWdg(const String& path);
 void doWdgUploadFromDevice();
@@ -1451,7 +1464,7 @@ void gpsOpenPort(int rx, int tx, uint32_t baud) {
 #endif
   gpsSerial.end();
   delay(30);
-  gpsSerial.setRxBufferSize(4096);
+  gpsSerial.setRxBufferSize(1024);   // the pump task empties it every 5 ms
   gpsSerial.onReceiveError([](hardwareSerial_error_t) { gpsUartErrs++; });   // FIFO / buffer overflow, framing
   gpsSerial.begin(baud, SERIAL_8N1, rx, tx);
   gpsRingTail = gpsRingHead;
@@ -1919,7 +1932,6 @@ int listAllLogs(String* names, int maxN, uint32_t* sizes = nullptr, uint8_t* whe
 // mid-run while a card test (radios off) passed. Rows wait in a PSRAM buffer (512 KB, about
 // 4,700 rows) and are only dropped from it once they are on the card; at the end of a run
 // the radios are switched off first and whatever is left is written then.
-static char wdLogFallback[4096];
 static char* wdLogBuf = nullptr;
 static size_t wdLogCap = 0, wdLogLen = 0;
 static File wdLogFile;
@@ -1963,7 +1975,7 @@ static void wdLogBufInit() {
   wdLogBuf = (char*)heap_caps_malloc(512 * 1024, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (wdLogBuf) wdLogCap = 512 * 1024;
 #endif
-  if (!wdLogBuf) { wdLogBuf = wdLogFallback; wdLogCap = sizeof(wdLogFallback); }
+  if (!wdLogBuf) { wdLogBuf = (char*)malloc(4096); wdLogCap = wdLogBuf ? 4096 : 0; }
 }
 
 static bool wdLogOpenFile(const char* mode) {
@@ -2179,6 +2191,7 @@ String wdBleErr = "";              // why Bluetooth is off this run, e.g. "start
 extern "C" int ble_hs_synced(void);
 extern "C" int ble_gap_disc_active(void);
 bool wdScanEvtRegistered = false;
+bool wdWifiFailed = false; uint16_t wdWifiStartFails = 0; String wdWifiErr = "";
 
 static void wdScanDoneEvt(void*, esp_event_base_t, int32_t, void*) { wdWifiScanDone = true; }
 static void wdBleDoneCb(BLEScanResults) { wdBleScanDone = true; }
@@ -2210,9 +2223,12 @@ bool wdStartWifiScan() {
   wdWifiScanDone = false;
   esp_err_t e = esp_wifi_scan_start(&c, false);
   if (e != ESP_OK) {
-    Serial.printf("scan_start err %d\n", (int)e);
+    wdWifiErr = String(esp_err_to_name(e)) + ", " + String((unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024)) + " KB free";
+    Serial.printf("Wi-Fi scan would not start: %s\n", wdWifiErr.c_str());
+    if (++wdWifiStartFails >= 3) wdWifiFailed = true;
     return false;
   }
+  wdWifiStartFails = 0; wdWifiFailed = false; wdWifiErr = "";
   return true;
 }
 
@@ -2321,6 +2337,8 @@ void startWardriving() {
   if (wardriveActive) return;
   if (apActive) stopPortalAP();
 
+  freeLogNameLists();
+  Serial.printf("Run start: on-chip RAM %u KB free, largest block %u KB\n", (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024), (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024));
   seenInit();
   if (!openLogFS()) Serial.println("No SD and no LittleFS — scanning anyway, no file");
 
@@ -2346,6 +2364,7 @@ void startWardriving() {
   // Bluetooth first, while the on-chip RAM is free: its controller needs a block of it, and
   // with Wi-Fi already running it could fail to start, leaving the run with 0 Bluetooth.
   wdBleFailed = false; wdBleStartFails = 0; wdBleRecoverTried = false; wdBleErr = "";
+  wdWifiFailed = false; wdWifiStartFails = 0; wdWifiErr = "";
   if (pBLEScan == nullptr) {
     if (BLEDevice::init("")) pBLEScan = BLEDevice::getScan();
     else {
@@ -3239,6 +3258,7 @@ const char* wdStatusText() {
   static char st[36];
   if (!wardriveActive) return "READY";
   if (wdLogFailed) return "LOG NOT SAVING";
+  if (wdWifiFailed && wdDoWifi) { snprintf(st, sizeof(st), "WIFI OFF: %s", wdWifiErr.c_str()); return st; }
   if (wdBleFailed && wdDoBle) { snprintf(st, sizeof(st), "BT OFF: %s", wdBleErr.length() ? wdBleErr.c_str() : "not scanning"); return st; }
   if (wdWaitingGps || !proGpsAccOk()) return gpsValid ? "WAIT GPS SATS" : "WAITING FOR GPS";
   if (scanPhase == 1) {
@@ -3253,7 +3273,7 @@ const char* wdStatusText() {
 uint16_t wdStatusColor() {
   if (!wardriveActive) return UI_MUTE;
   if (wdLogFailed) return C_BAD;
-  if (wdBleFailed && wdDoBle) return C_WARN;
+  if ((wdBleFailed && wdDoBle) || (wdWifiFailed && wdDoWifi)) return C_WARN;
   if (wdWaitingGps || !proGpsAccOk()) return C_WARN;
   return C_OK;
 }
@@ -4545,6 +4565,12 @@ void showWdgStatusScreen(const char* line1, const char* line2 = "", const char* 
 
 // On-device WDGWars upload (needs home WiFi + API key)
 
+void freeLogNameLists() {
+  String* s = logNameScratch();
+  for (int i = 0; i < MAX_LOG_FILES; i++) { fileNames[i] = String(); s[i] = String(); upJobFiles[i] = String(); }
+  fileBrowserCount = 0;
+}
+
 void loadCsvFileList() {
   openLogFS();                         // remounts the card if needed; copies flash logs onto it
   for (int i = 0; i < MAX_LOG_FILES; i++) { fileSelected[i] = false; fileNames[i] = ""; fileWhere[i] = 0; }
@@ -4919,7 +4945,7 @@ void doWdgUploadFromDevice() {
 
   showWdgStatusScreen("Uploading CSVs...", WiFi.localIP().toString().c_str(), "Do not power off");
 
-  static String names[MAX_LOG_FILES];
+  String* names = logNameScratch();
   int n = 0;
   n = listAllLogs(names, MAX_LOG_FILES);
 
@@ -6109,7 +6135,7 @@ void handleDownloadAll() {
   }
 
   // Collect CSV filenames: the ones asked for (?f=a.csv&f=b.csv), or all of them
-  static String names[MAX_LOG_FILES];
+  String* names = logNameScratch();
   int nFiles = 0;
   for (int i = 0; i < server.args() && nFiles < MAX_LOG_FILES; i++) {
     if (server.argName(i) != "f") continue;
@@ -6504,7 +6530,7 @@ void doWigleUploadFromDevice() {
     }
   }
   showWdgStatusScreen("Wigle uploading...", WiFi.localIP().toString().c_str(), "Do not power off");
-  static String names[MAX_LOG_FILES]; int n = 0;
+  String* names = logNameScratch(); int n = 0;
   n = listAllLogs(names, MAX_LOG_FILES);
   if (n == 0) {
     showWdgStatusScreen("No CSV files", "Run a wardrive first", "");
@@ -6622,7 +6648,6 @@ static inline void portalHit() { portalLastHitMs = millis(); sdBusFree(); }   //
 bool upJobPending = false;
 unsigned long upJobAt = 0;
 String upJobTarget = "";
-String upJobFiles[MAX_LOG_FILES];
 int upJobN = 0;                              // 0 = every log
 String upLastReport = "";                    // JSON object shown on the portal's Upload tab
 
@@ -6683,7 +6708,7 @@ static int listCsv(String* names, int maxN, uint32_t* sizes = nullptr, uint8_t* 
 void handleApiStatus() {
   portalHit();
   openLogFS();
-  static String names[MAX_LOG_FILES]; static uint32_t sizes[MAX_LOG_FILES]; static uint8_t where[MAX_LOG_FILES];
+  String* names = logNameScratch(); static uint32_t sizes[MAX_LOG_FILES]; static uint8_t where[MAX_LOG_FILES];
   int n = listCsv(names, MAX_LOG_FILES, sizes, where);
   bool sd = !logUseLittleFS && sdReady;
   uint64_t used = sd ? SD.usedBytes() : LittleFS.usedBytes();
@@ -6742,7 +6767,7 @@ void handleApiDelete() {
   portalHit();
   int deleted = 0;
   if (server.hasArg("all")) {
-    static String names[MAX_LOG_FILES];
+    String* names = logNameScratch();
     int n = listCsv(names, MAX_LOG_FILES);
     for (int i = 0; i < n; i++) if (logRemoveAny("/" + names[i])) deleted++;
   } else {
@@ -7224,6 +7249,8 @@ void setup() {
   Serial.begin(115200);
   delay(200);
   Serial.println("\n=== WARDRIVER BOOT ===");
+  fileNames = psStringArray(MAX_LOG_FILES);
+  upJobFiles = psStringArray(MAX_LOG_FILES);
 #ifndef SKIRF_HOST_PREVIEW
   if (ESP.getPsramSize() > 0) mbedtls_platform_set_calloc_free(tlsCalloc, tlsFree);
 #endif
