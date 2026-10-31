@@ -8,6 +8,9 @@ WDGWars from the board.
 
 It only listens. It never attacks and never joins anyone's network.
 
+No board? SKIrf Wardriver for Android (SKIrf_Wardriver_1.0_Beta_1.apk on the Releases page and the web flasher)
+does the same job with your phone's Wi-Fi, Bluetooth and GPS. See android/README.md.
+
 
 WHAT YOU NEED
 -------------
@@ -64,8 +67,6 @@ GOOD TO KNOW (THIS IS A BETA)
     the page is open). Tap SKIP if you do not need it.
   * GPS on IO4 shows NO DATA on many boards: wire its TX to IO8, RX to IO9 and pick the 8 / 9 preset in
     Settings > GPS pins. Flashing resets the pins.
-  * Known issue: on some boards logs written during a run do not stay on the microSD card even though
-    Settings > Storage > TEST CARD passes. Until it is fixed, set Save logs to: FLASH.
   * Sound needs a small PASSIVE buzzer or piezo on IO26 and GND. Without one the board is silent.
   * The board is updated over USB.
 

@@ -15,3 +15,9 @@ Thumbs.db
 # Generated art previews
 tools/art/out/
 __pycache__/
+# Android app: build output, SDK pieces and the signing key stay out of git
+android/build/
+android/tools/*.jar
+android/tools/aapt2
+android/tools/*.jks
+*.apk

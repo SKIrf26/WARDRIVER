@@ -29,3 +29,9 @@ WiGLE, WDGWars, RockBase, NMTech, Espressif, Arduino and the other names that ap
 
 ## Binary releases
 A pre-built `.bin` attached to a GitHub Release contains compiled code from the components above. The library sources are available from the projects named in the table.
+
+## Android app
+
+- **Saira Semi Condensed** fonts (Medium, SemiBold, Bold), SIL Open Font License 1.1, bundled in `android/assets/fonts/` with the licence text.
+- **Map tiles** are loaded at run time from OpenStreetMap (© OpenStreetMap contributors, ODbL). The app shows the attribution on the map and can switch tiles off.
+- No other third-party code: the app uses only the Android framework.

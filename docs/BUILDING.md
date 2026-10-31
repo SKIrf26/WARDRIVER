@@ -98,3 +98,7 @@ Each font argument is `NAME file.ttf size caps tracking`: `caps 1` draws every l
 ## Where things are
 
 [CODE_MAP.md](CODE_MAP.md) lists every section of the sketch with its line number.
+
+## The Android app
+
+[`android/README.md`](../android/README.md) explains the app build: plain Java with no libraries, compiled with `android/build.sh` (aapt2, javac, dx, zipalign, apksigner) or imported into Android Studio. The signing key is not in the repo.

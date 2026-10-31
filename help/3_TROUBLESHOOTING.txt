@@ -70,8 +70,6 @@ F. Logs are not saved to the microSD card
    - Logs in the board's flash still show in the Logs list (tagged FLASH) and the portal, and upload normally.
      Settings > Storage > MOVE TO CARD copies them to the card, checks every byte and only then removes them from
      flash. The board never deletes a flash log by itself.
-   - KNOWN ISSUE in this beta: on some boards the card passes TEST CARD but logs written during a run do not stay on
-     it. Until it is fixed, set Settings > Storage > Save logs to: FLASH.
 
 G. I cannot reach the web portal
    - The hotspot is up for 60 seconds (at start-up, or after Settings > Web portal), and stays up while the page is

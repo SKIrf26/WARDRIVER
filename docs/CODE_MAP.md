@@ -98,3 +98,7 @@ The sections below are the `// ----` and `// ====` headings in the sketch, in fi
 ## Drawing
 
 Screens draw straight to the panel. Areas that change often (lists, the radar, counters, the vehicle lanes) are drawn into an off-screen sprite with `paintRegion()` and pushed in one go, so nothing flickers. Every colour goes through `C565()`, which corrects this panel's red/blue order; the palette is derived from the theme accent in `paletteRefresh()`.
+
+## Android app
+
+The phone app lives in [`android/`](../android/). Its own README has a file-by-file map (scan engine, CSV writer, uploader, screens, map and charts) and the build steps.

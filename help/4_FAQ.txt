@@ -66,5 +66,11 @@ Is it legal to use?
   Listening to openly broadcast Wi-Fi and Bluetooth is lawful in many places, but laws differ. You are responsible for
   following the laws where you are. Never join networks you are not allowed to use.
 
+Is there a phone version?
+  Yes: SKIrf Wardriver for Android (SKIrf_Wardriver_1.0_Beta_1.apk, Android 8.0 or newer) on the Releases page and
+  the web flasher. It uses the phone's own Wi-Fi, Bluetooth and GPS, so no board is needed, and writes the same WiGLE
+  CSV logs. Android limits apps to about 4 Wi-Fi scans every 2 minutes: turn off Developer options > Wi-Fi scan
+  throttling to catch far more networks. Details: android/README.md.
+
 Where do I report a problem or ask for a feature?
   On the project page: Issues tab, Bug report or Feature request form.

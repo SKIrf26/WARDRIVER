@@ -5,6 +5,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- SKIrf Wardriver for Android 1.0 Beta 1 (`android/`): a phone-only wardriver with the board's look. Wi-Fi (with stale-result filtering and Android scan-throttle detection), Bluetooth LE, classic Bluetooth and cell towers (GSM, WCDMA, LTE, 5G NR); WiGLE CSV 1.6 logs with the board's row format; foreground service with a Stop button; Drive, Map (dark OpenStreetMap tiles, route and finds), GPS (sky plot, signal bars), Logs (WiGLE / WDGWars stats, upload, share, save to Downloads) and Settings screens; auto-upload after a run; crash reports. Plain Java, no libraries, built without Gradle (`android/build.sh`).
+- The web flasher has an Android section with the APK download and its SHA-256.
+
+### Removed
+- The "logs do not stay on the card" known-issue notes: card and flash logging are confirmed working with this build.
+
 ### Fixed
 - Wi-Fi and Bluetooth could not both run: recent changes had used up about 20 KB of on-chip RAM (seven 120-entry log-name lists kept in it for good, a 4 KB fallback log buffer, a 4 KB GPS serial buffer), so whichever radio started second failed (Wi-Fi only, or Bluetooth only). The name lists now live in PSRAM and are emptied before each run, the fallback buffer is only made without PSRAM, and the GPS serial buffer is 1 KB (the reader task empties it every 5 ms). Static RAM is back to 62 KB (it was 76 KB). A Wi-Fi scan that will not start now shows WIFI OFF: <reason> on the run screen, like Bluetooth; the Serial Monitor prints the free on-chip RAM at every run start.
 - Bluetooth problems are now shown steadily on the run screen as BT OFF: <reason> (start failed / host not ready / scan refused / scan stuck, with the free on-chip RAM), and the board restarts the Bluetooth stack once per run before giving up.

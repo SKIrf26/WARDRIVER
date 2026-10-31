@@ -20,6 +20,8 @@ SKIrf Wardriver turns the NM-CYD-C5 board (ESP32-C5, 2.8 inch touchscreen) into 
 
 It is passive: it only receives the beacons and adverts that devices broadcast openly. It does not connect to, attack, or crack anyone's network.
 
+> **No board? There's a phone app too.** [SKIrf Wardriver for Android](#android-app) does the same job with your phone's own Wi-Fi, Bluetooth and GPS, writes the same WiGLE CSV logs, and uploads to WiGLE and WDGWars.
+
 ## Features
 
 - **Dual-band Wi-Fi + Bluetooth LE** in one sweep: 2.4 GHz, 5 GHz (including UNII-3, channels 149-165) and BLE, with a live count for each
@@ -59,6 +61,21 @@ It is passive: it only receives the beacons and adverts that devices broadcast o
 <tr align="center"><td>Logs</td><td>Upload</td><td>Setup</td></tr>
 </table>
 
+## Android app
+
+**SKIrf Wardriver for Android** is a phone-only version: no board needed. It uses the phone's Wi-Fi, Bluetooth LE, classic Bluetooth, cell radio and GPS, logs in the same WiGLE CSV format as the board, and uploads to WiGLE and WDGWars. Source and full notes: [`android/`](android/).
+
+- **Drive**: start/stop, run timer, distance, live counts per radio, "new to you", finds per minute, Wi-Fi band and security split, radio status and a live list of finds
+- **Map**: dark street map (OpenStreetMap) with your route and every find; opens saved logs too
+- **GPS**: fix, coordinates, speed, altitude, heading, satellite sky plot and signal bars
+- **Logs**: WiGLE and WDGWars stats, upload new logs, map, share, save to Downloads, delete
+- **Settings**: every option (scan rates, BLE power, minimum signal, GPS accuracy gate, log mode, file splitting, auto-upload, Wi-Fi-only uploads, units, themes including WDGW and Pro)
+- Keeps scanning with the screen off, with a Stop button in the notification
+
+**Install:** download `SKIrf_Wardriver_1.0_Beta_1.apk` from the [Releases page](https://github.com/SKIrf26/WARDRIVER/releases) or the [web flasher](https://skirf-labs.tech/wardriver_flasher/index.html#android), open it on the phone and allow the install (Play Protect may ask: **More details > Install anyway**). Android 8.0 or newer.
+
+**Tip:** Android allows an app about 4 Wi-Fi scans every 2 minutes. Turn off **Developer options > Wi-Fi scan throttling** to catch far more networks; the app walks you through it (Settings > Phone).
+
 ## What you need
 
 - An **NM-CYD-C5** board and a USB-C **data** cable
@@ -72,7 +89,7 @@ Not sure where to start? Read [READ_ME_FIRST.txt](READ_ME_FIRST.txt) and the [he
 
 ### Web Flasher
 
-- Flash it with `esptool` or with the project's [web flasher](https://skirf-labs.tech/wardriver_flasher/index.html)
+- Flash it with `esptool` or with the project's [web flasher](https://skirf-labs.tech/wardriver_flasher/index.html), which also has the Android app download
 
 ### Flash the firmware file
 
@@ -98,6 +115,7 @@ The illustrated user guide covers set-up, every screen, the settings, uploading,
 - [User guide (PDF)](docs/SKIrf_WARDRIVER_C5_CYD_Beta_1_User_Guide.pdf)
 - Booklet versions for printing two-sided: [flip on long edge](docs/SKIrf_WARDRIVER_C5_CYD_Beta_1_User_Guide_BOOKLET_flip-long-edge.pdf) / [flip on short edge](docs/SKIrf_WARDRIVER_C5_CYD_Beta_1_User_Guide_BOOKLET_flip-short-edge.pdf)
 - Plain-text help: [help/](help/) (getting started, flashing, troubleshooting, FAQ)
+- Android app: [android/README.md](android/README.md)
 - For developers: [docs/BUILDING.md](docs/BUILDING.md) and [docs/CODE_MAP.md](docs/CODE_MAP.md)
 
 ## Beta status: what to expect
@@ -105,7 +123,6 @@ The illustrated user guide covers set-up, every screen, the settings, uploading,
 This is **Beta 1**, the first public release. Expect rough edges, and expect some behaviour to change.
 
 - A run scans and logs only while the GPS has a fix. Give the module a clear view of the sky; the first fix can take a few minutes.
-- **Known issue:** on some boards a microSD card passes Settings > Storage > TEST CARD but logs written during a run do not stay on it. Until it is fixed, set **Save logs to: FLASH**; logs in flash show in the Logs list and the portal and upload normally.
 - The web portal's hotspot (`SKIrf_WARDRIVER`) is **open** (no password) while it is up (60 seconds, longer while the page is open). Do not leave it running in a crowded place. See [SECURITY.md](SECURITY.md).
 - The Wi-Fi country is set to US in the source (`SKIRF_WIFI_COUNTRY`), which allows 5 GHz channels 149-165. Change it and build your own if you are elsewhere.
 - Sound needs a small **passive** buzzer fitted to the board.
@@ -129,6 +146,7 @@ WiGLE, WDGWars, RockBase, NMTech, Espressif, Arduino and other names belong to t
 | Path | Contents |
 |---|---|
 | `src/` | The firmware source (Arduino sketch) |
+| `android/` | The Android app source (plain Java, no libraries) and its build script |
 | `help/` | Plain-text help: getting started, flashing, troubleshooting, FAQ |
 | `firmware/` | How the release `.bin` is flashed and checked |
 | `docs/` | User guide PDFs, build notes, code map, release steps, images |

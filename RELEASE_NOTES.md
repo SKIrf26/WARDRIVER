@@ -25,6 +25,19 @@ This replaces the first Beta 1 image. Fixes since then:
 - Logs: the run's file stays open for the whole run, rows are buffered and never dropped, logs in the board's flash are never deleted automatically, and lists / uploads show logs on the card and in flash together
 - New web portal design; Settings > Storage
 
+## New: SKIrf Wardriver for Android (1.0 Beta 1)
+A phone-only wardriver: no board needed. It uses the phone's Wi-Fi, Bluetooth LE, classic Bluetooth, cell towers and GPS, writes the same WiGLE CSV logs as the board, and uploads to WiGLE and WDGWars. Drive, Map, GPS, Logs and Settings screens in the board's look, a live map with your route, satellite sky plot, auto-upload, and scanning with the screen off. Android 8.0 or newer.
+
+Install `SKIrf_Wardriver_1.0_Beta_1.apk` from the files below: open it on the phone and allow the install (Play Protect may ask: More details > Install anyway). For far more Wi-Fi networks, turn off Developer options > Wi-Fi scan throttling (the app shows how).
+
+## Updated build (31 Oct 2026)
+- Wi-Fi and Bluetooth now scan together (on-chip memory freed; WIFI OFF / BT OFF show the reason on the run screen if a radio can't start)
+- Bluetooth starts before Wi-Fi at run start, and the stack restarts once per run if it stalls
+- WDGWars stats load (the reply check was inverted)
+- The web portal also opens on your home network, at the address on the Wi-Fi screen
+- Logs on the card and in flash are listed together; flash logs are never deleted automatically; MOVE TO CARD verifies every byte
+- With a card fitted, logs default to the card only
+
 ## Install
 Download `SKIrf_WARDRIVER_C5_CYD_Beta_1.bin` below and write it at `0x0`:
 
@@ -38,13 +51,12 @@ Use the board's left USB-C port. This resets the settings saved in the board (yo
 | File | Purpose |
 |---|---|
 | `SKIrf_WARDRIVER_C5_CYD_Beta_1.bin` | Complete image, write at `0x0` |
-| `SHA256SUMS.txt` | Checksum |
+| `SKIrf_Wardriver_1.0_Beta_1.apk` | Android app (phone-only wardriver), Android 8.0+ |
+| `SHA256SUMS.txt` | Checksums |
 | `SKIrf_WARDRIVER_C5_CYD_Beta_1_User_Guide.pdf` (+ two booklet versions) | User guide |
 
 ## Please know
 This is a **beta**. A run scans only while the GPS has a fix.
-
-**Known issue:** on some boards a microSD card passes the card test but logs written during a run do not stay on it. Until this is fixed, set **Settings > Storage > Save logs to: FLASH** (about 1.5 MB, enough for short runs); logs in flash show in the Logs list and the portal and upload normally.
 
 After flashing, set your GPS pins again (Settings > GPS pins) if your module is not on the default RX 4 / TX 5. The web portal hotspot (`SKIrf_WARDRIVER`) has no password and is up for 60 seconds at a time. The Wi-Fi country is US by default (change `SKIRF_WIFI_COUNTRY` and build your own elsewhere). Sound needs a small passive buzzer on IO26.
 

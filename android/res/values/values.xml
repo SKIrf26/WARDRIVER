@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="icon_bg">#000000</color>
+    <string name="app_name">SKIrf Wardriver</string>
+    <style name="AppTheme" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/icon_bg</item>
+        <item name="android:statusBarColor">@color/icon_bg</item>
+        <item name="android:navigationBarColor">@color/icon_bg</item>
+        <item name="android:colorAccent">#40F096</item>
+        <item name="android:windowSoftInputMode">adjustResize</item>
+    </style>
+</resources>
